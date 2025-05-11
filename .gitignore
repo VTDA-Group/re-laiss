@@ -1,0 +1,6 @@
+data/sfddata-master/
+data/df_bank.csv
+data/theorized_lc/
+code/__pycache__/
+data/.DS_Store
+.DS_Store
