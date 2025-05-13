@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
+from .index import build_indexed_sample
 
 import annoy
 import numpy as np
@@ -16,8 +17,6 @@ from .search import primer
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
 
 class ReLAISS:
-    """A minimal, user‑facing wrapper around the full reLAISS tool‑chain."""
-
     def __init__(
         self,
         bank_csv: Path | str,
@@ -76,7 +75,7 @@ class ReLAISS:
         host_features = list(host_features) if host_features else _c.raw_host_features_const.copy()
 
         # build or reuse index
-        index_stem = re_build_indexed_sample(
+        index_stem = build_indexed_sample(
             dataset_bank_path=bank_path,
             lc_features=lc_features,
             host_features=host_features,
@@ -100,10 +99,8 @@ class ReLAISS:
 
     def find_neighbors(
         self,
-        primer_dict,
         theorized_lightcurve_df,
         path_to_dataset_bank,
-        annoy_index_file_stem,
         use_pca=False,
         num_pca_components=15,
         n=8,
@@ -118,10 +115,8 @@ class ReLAISS:
 
         Parameters
         ----------
-        primer_dict : dict
-            Output from :func:`re_LAISS_primer`.
         annoy_index_file_stem : str
-            Stem path returned by :func:`re_build_indexed_sample`.
+            Stem path returned by :func:`build_indexed_sample`.
         use_pca, num_pca_components : see above
         n : int, default 8
             Number of neighbours to return.
@@ -132,7 +127,7 @@ class ReLAISS:
         search_k : int, default 1000
             ANNOY *search_k* parameter.
         weight_lc_feats_factor : float, default 1
-            Same interpretation as in ``re_build_indexed_sample``.
+            Same interpretation as in ``build_indexed_sample``.
         save_figures : bool, default True
             Write LC + host plots and distance-elbow PNGs.
         path_to_figure_directory : str | Path
@@ -142,6 +137,20 @@ class ReLAISS:
         pandas.DataFrame | None
             Table summarising neighbours (or *None* if *suggest_neighbor_num=True*).
         """
+        annoy_index_file_stem = self.index_stem
+
+        primer_dict = primer(
+            lc_ztf_id=ztf_id,
+            theorized_lightcurve_df=None,
+            host_ztf_id=None,
+            dataset_bank_path=self.bank_csv,
+            path_to_timeseries_folder=str(self.bank_csv.parent / "timeseries"),
+            path_to_sfd_data_folder=str(self.bank_csv.parent / "sfddata"),
+            lc_features=self.lc_features if use_lightcurve else [],
+            host_features=self.host_features if use_host else [],
+            num_sims=0,
+            save_timeseries=False,
+        )
 
         start_time = time.time()
         index_file = annoy_index_file_stem + ".ann"
