@@ -14,7 +14,6 @@ from . import constants
 from .fetch import get_timeseries_df, get_TNS_data
 from .plotting import plot_hosts, plot_lightcurves
 
-
 def primer(
     lc_ztf_id,
     theorized_lightcurve_df,

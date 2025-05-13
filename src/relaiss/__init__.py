@@ -1,6 +1,7 @@
 from importlib import metadata
 
-from .relaiss import ReLAISS, find_neighbors, load_reference
+from .relaiss import ReLAISS, load_reference
+from .search import find_neighbors
 
 try:
     __version__ = metadata.version("relaiss")
