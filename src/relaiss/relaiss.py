@@ -117,6 +117,8 @@ class ReLAISS:
         suggest_neighbor_num=False,
         max_neighbor_dist=None,
         search_k=1000,
+        use_lightcurve=True,
+        use_host=False,
         weight_lc_feats_factor=1,
         save_figures=True,
         path_to_figure_directory="../figures",
