@@ -12,7 +12,7 @@ from scipy.stats import gamma, uniform
 from sklearn.impute import KNNImputer, SimpleImputer
 
 from . import constants
-from .fetch import re_suppress_output
+from .fetch import suppress_output
 from astro_prost.associate import associate_sample
 import numpy as np
 import pandas as pd
