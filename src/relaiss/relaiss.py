@@ -82,6 +82,11 @@ class ReLAISS:
 
             url = "https://drive.google.com/uc?export=download&id=1uH_03ju50Enb7ZhiduDrmCVTMvTc7bMC"
             gdown.download(url, str(bank_path), quiet=False)
+ 
+        print("Engineering host features...")
+        raw_df_bank = pd.read_csv(bank_path)
+        hydrated_bank = build_dataset_bank(raw_df_bank)
+        hydrated_bank.to_csv(bank_path)
 
         # build or reuse index
         index_stem = build_indexed_sample(
