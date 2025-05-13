@@ -8,8 +8,8 @@ from sklearn.decomposition import PCA
 from typing import Optional, Sequence
 
 # --------------- helper imports (internal low‑level funcs) ------------------
-from .index  import re_build_indexed_sample
-from .search import re_LAISS_primer
+from .index  import build_indexed_sample
+from .search import primer
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
 
@@ -129,7 +129,7 @@ class ReLAISS:
         """
         # ------------------------------------------------------------------
         # 1. Build query vector via existing feature‑extraction pipeline.
-        primer = re_LAISS_primer(
+        primer = primer(
             lc_ztf_id=ztf_id,
             theorized_lightcurve_df=None,
             host_ztf_id=None,

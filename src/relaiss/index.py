@@ -22,7 +22,7 @@ def build_indexed_sample(
     Parameters
     ----------
     dataset_bank_path : str | Path
-        CSV produced by ``re_build_dataset_bank``; first column must be
+        CSV produced by ``build_dataset_bank``; first column must be
         ``ztf_object_id``.
     lc_features, host_features : list[str]
         Feature columns to include in the index.

@@ -12,7 +12,7 @@ from kneed import KneeLocator
 from . import constants
 import os
 
-def LAISS_primer(
+def primer(
     lc_ztf_id,
     theorized_lightcurve_df,
     dataset_bank_path,

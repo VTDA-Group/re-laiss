@@ -36,6 +36,7 @@ dependencies = [
   "corner",
   "dust-extinction",
   "astro-prost",
+  "absl-py<2",
   "antares-client"
 ]
 
