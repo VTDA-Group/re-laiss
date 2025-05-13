@@ -108,8 +108,9 @@ class ReLAISS:
 
     def find_neighbors(
         self,
-        theorized_lightcurve_df,
-        path_to_dataset_bank,
+        ZTFID,
+        theorized_lightcurve_df=None,
+        path_to_dataset_bank=None,
         use_pca=False,
         num_pca_components=15,
         n=8,
@@ -149,7 +150,7 @@ class ReLAISS:
         annoy_index_file_stem = self.index_stem
 
         primer_dict = primer(
-            lc_ztf_id=ztf_id,
+            lc_ztf_id=ZTFID,
             theorized_lightcurve_df=None,
             host_ztf_id=None,
             dataset_bank_path=self.bank_csv,
