@@ -69,7 +69,7 @@ class ReLAISS:
         n_components : int | None
             PCA dimensionality; *None* keeps 99 % variance.
         """
-        import constants as _c
+        from . import constants as _c
 
         lc_features = list(lc_features) if lc_features else _c.lc_features_const.copy()
         host_features = list(host_features) if host_features else _c.raw_host_features_const.copy()
