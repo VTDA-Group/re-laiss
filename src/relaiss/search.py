@@ -95,7 +95,8 @@ def primer(
 
         # Check if ztf_id is in dataset bank
         try:
-            df_bank = pd.read_csv(dataset_bank_path, index_col=0)
+            df_bank = (pd.read_csv(dataset_bank_path).set_index("ZTFID", drop=True))
+
             # Check to make sure all features are in the dataset bank
             missing_cols = [col for col in feature_names if col not in df_bank.columns]
             if missing_cols:
