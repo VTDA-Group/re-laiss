@@ -4,8 +4,8 @@ name = "relaiss"
 license = {file = "LICENSE"}
 readme = "README.md"
 authors = [
-    { name = "Evan Reynolds", email = ""}
-    { name = "Alex Gagliano", email = "gaglian2@mit.edu" }
+    { name = "Evan Reynolds", email = ""},
+    { name = "Alex Gagliano", email = "gaglian2@mit.edu" },
     { name = "Ashley Villar", email = "ashleyvillar@cfa.harvard.edu"}
 ]
 classifiers = [
