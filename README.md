@@ -10,9 +10,7 @@ reLAISS lets you retrieve nearest‑neighbour supernovae (or spot outliers) by c
 
 # Install
 
-Installation of the package is easy: 
-
-`pip install relaiss`
+Installation of the package is easy: In a fresh conda environment, run `pip install relaiss`
 
 
 # Code Demo
