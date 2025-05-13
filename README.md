@@ -1,4 +1,6 @@
-# reLAISS
+<p align="center">
+  <img src="https://github.com/evan-reynolds/re-laiss/blob/main/static/reLAISS_logo.png" style="width: 50%;" alt="reLAISS Logo">
+</p>
 
 _A flexible library for similarity searches of supernovae and their host galaxies._
 

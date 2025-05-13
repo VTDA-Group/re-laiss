@@ -6,11 +6,25 @@ from sfdmap2 import sfdmap
 from dust_extinction.parameter_averages import G23
 from numpy.lib.stride_tricks import sliding_window_view
 import warnings
+from sklearn.cluster import DBSCAN
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-
 def local_curvature(times, mags):
+    """Median second derivative (curvature) of a light-curve segment.
+
+    Parameters
+    ----------
+    times : array-like
+        Strictly increasing observation times (days).
+    mags : array-like
+        Corresponding magnitudes.
+
+    Returns
+    -------
+    float
+        Median curvature in mag day⁻²; ``np.nan`` if fewer than three points.
+    """
     if len(times) < 3:
         return np.nan
     curvatures = []
@@ -31,6 +45,14 @@ m = sfdmap.SFDMap()
 class SupernovaFeatureExtractor:
     @staticmethod
     def describe_features():
+        """Dictionary mapping feature names → human-readable descriptions.
+
+        Returns
+        -------
+        dict[str, str]
+            Keys follow the column names produced by
+            :pymeth:`SupernovaFeatureExtractor.extract_features`.
+        """
         return {
             "t0": "Time zero-point for light curve normalization",
             "g_peak_mag": "Minimum magnitude (brightest point) in g band",
@@ -77,6 +99,22 @@ class SupernovaFeatureExtractor:
     def __init__(
         self, time_g, mag_g, err_g, time_r, mag_r, err_r, ZTFID=None, ra=None, dec=None
     ):
+        """Create a feature extractor for g/r light curves.
+
+        Times are zero-pointed to the earliest observation; optional Milky-Way
+        extinction is applied when *ra/dec* are supplied.
+
+        Parameters
+        ----------
+        time_g, mag_g, err_g : array-like
+            g-band MJD, magnitude and 1-σ uncertainty.
+        time_r, mag_r, err_r : array-like
+            r-band MJD, magnitude and 1-σ uncertainty.
+        ZTFID : str | None, optional
+            Identifier used in warnings and output tables.
+        ra, dec : float | None, optional
+            ICRS coordinates (deg) for dust-extinction correction.
+        """
         if ZTFID:
             self.ZTFID = ZTFID
         else:
@@ -107,6 +145,12 @@ class SupernovaFeatureExtractor:
         self._preprocess()
 
     def _preprocess(self, min_cluster_size=2):
+        """Sort, de-duplicate, and DBSCAN-filter out isolated epochs.
+
+        Removes cluster labels with fewer than *min_cluster_size* points and
+        re-normalises times so that ``t=0`` corresponds to the earliest good
+        observation in either band.
+        """
         for band_name in ["g", "r"]:
             band = getattr(self, band_name)
             idx = np.argsort(band["time"])
@@ -146,8 +190,10 @@ class SupernovaFeatureExtractor:
             self.time_offset += new_time_offset
 
     def _select_main_cluster(self, time, mag, min_samples=3, eps=20):
-        from sklearn.cluster import DBSCAN
+        """Return a boolean mask selecting the dominant DBSCAN time cluster.
 
+        The cluster with the brightest peak and tightest span wins the tie-break.
+        """
         if len(time) < min_samples:
             return np.ones_like(time, dtype=bool)
         time_reshaped = np.array(time).reshape(-1, 1)
@@ -171,6 +217,13 @@ class SupernovaFeatureExtractor:
         return labels == best_label
 
     def _flag_isolated_points(time, max_gap_factor=5):
+        """Identify photometric points that are isolated by large temporal gaps.
+
+        Returns
+        -------
+        numpy.ndarray[bool]
+            True for epochs flanked by gaps > *max_gap_factor* × median cadence.
+        """
         time = np.sort(time)
         dt = np.diff(time)
 
@@ -188,6 +241,22 @@ class SupernovaFeatureExtractor:
         return isolated
 
     def _core_stats(self, band):
+        """Peak, rise/decline and half-flux duration for one band.
+
+        Parameters
+        ----------
+        band : dict
+            ``{'time','mag'}`` arrays for a single filter.
+
+        Returns
+        -------
+        tuple
+            *(peak_mag, peak_time, rise_time, decline_time, duration_above_half)*
+
+        Notes
+        -----
+        All values are ``np.nan`` if <3 points or total peak-to-peak amplitude <0.2 mag.
+        """
         t, m = band["time"], band["mag"]
         mask = np.isfinite(t) & np.isfinite(m) & ~np.isnan(m)
         t, m = t[mask], m[mask]
@@ -216,6 +285,13 @@ class SupernovaFeatureExtractor:
         return peak_mag, peak_time, rise_time, decline_time, duration
 
     def _variability_stats(self, band):
+        """Amplitude, skewness, and 2-σ outlier rate of a magnitude series.
+
+        Returns
+        -------
+        tuple
+            *(amplitude, skewness, fraction_beyond_2σ)*
+        """
         mag = band["mag"]
         amp = np.max(mag) - np.min(mag)
         std = np.std(mag)
@@ -225,6 +301,14 @@ class SupernovaFeatureExtractor:
         return amp, skew, beyond_2
 
     def _color_features(self):
+        """Compute mean g–r colour, g–r at g-band peak, and average colour slope.
+
+        Returns
+        -------
+        tuple
+            ``(mean_colour, colour_at_g_peak, mean_dcolour_dt)``
+            or ``None`` when bands lack overlap.
+        """
         if len(self.g["time"]) < 2 or len(self.r["time"]) < 2:
             # print("Warning: Not enough data in g or r band to compute color features.")
             return None
@@ -261,6 +345,18 @@ class SupernovaFeatureExtractor:
         return np.mean(color), gr_at_gpeak, mean_rate
 
     def _rolling_variance(self, band, window_size=5):
+        """Max & mean variance in sliding windows over an interpolated LC.
+
+        Parameters
+        ----------
+        window_size : int, default 5
+            Number of interpolated samples per window.
+
+        Returns
+        -------
+        tuple
+            *(max_var, mean_var)*
+        """
         def dedup(t, m):
             _, idx = np.unique(t, return_index=True)
             return t[idx], m[idx]
@@ -275,6 +371,13 @@ class SupernovaFeatureExtractor:
         return np.max(rolling_vars), np.mean(rolling_vars)
 
     def _peak_structure(self, band):
+        """Secondary-peak diagnostics using SciPy ``find_peaks``.
+
+        Returns
+        -------
+        tuple
+            *(n_peaks, Δt, Δmag, prominence₂, width₂)* with NaNs when <2 peaks.
+        """
         if np.ptp(band["mag"]) < 0.5:
             # print("Warning: Insufficient variability to identify peak structure.")
             return 0, np.nan, np.nan, np.nan, np.nan
@@ -299,6 +402,13 @@ class SupernovaFeatureExtractor:
         return n_peaks, dt, dmag, prominence_second, width_second
 
     def _local_curvature_features(self, band, window_days=20):
+        """Median curvature on the rise and decline within ±*window_days* of peak.
+
+        Returns
+        -------
+        tuple
+            ``(rise_curvature, decline_curvature)``
+        """
         t, m = band["time"], band["mag"]
         mask = np.isfinite(t) & np.isfinite(m)
         t, m = t[mask], m[mask]
@@ -330,6 +440,22 @@ class SupernovaFeatureExtractor:
         return rise_curv, decline_curv
 
     def extract_features(self, return_uncertainty=False, n_trials=20):
+        """Generate the full reLAISS feature vector for the supplied LC.
+
+        Parameters
+        ----------
+        return_uncertainty : bool, default False
+            If True, performs *n_trials* MC perturbations and appends 1-σ errors
+            (columns with ``_err`` suffix).
+        n_trials : int, default 20
+            Number of Monte-Carlo resamples when *return_uncertainty* is True.
+
+        Returns
+        -------
+        pandas.DataFrame | None
+            Single-row feature table (with optional error columns) or *None* when
+            either band lacks data after pre-processing.
+        """
         if len(self.g["time"]) == 0 or len(self.r["time"]) == 0:
             # print(
             #     f"Warning: No data left in g or r band after filtering for object: {self.ZTFID}. Skipping."

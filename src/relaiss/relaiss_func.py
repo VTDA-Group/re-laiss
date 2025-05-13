@@ -13,7 +13,6 @@ from kneed import KneeLocator
 from pyod.models.iforest import IForest
 from statsmodels import robust
 
-
 def re_build_indexed_sample(
     dataset_bank_path,
     lc_features=[],
@@ -26,6 +25,42 @@ def re_build_indexed_sample(
     force_recreation_of_index=False,
     weight_lc_feats_factor=1,
 ):
+    """Create (or load) an ANNOY index over a reference feature bank.
+
+    Parameters
+    ----------
+    dataset_bank_path : str | Path
+        CSV produced by ``re_build_dataset_bank``; first column must be
+        ``ztf_object_id``.
+    lc_features, host_features : list[str]
+        Feature columns to include in the index.
+        Provide one or both lists.
+    use_pca : bool, default False
+        Apply PCA before indexing.
+    n_components : int | None
+        Dimensionality of PCA space; ignored if *use_pca=False*.
+    num_trees : int, default 1000
+        Number of random projection trees for ANNOY.
+    path_to_index_directory : str | Path, default ""
+        Folder for ``*.ann`` plus ``*.npy`` support files.
+    save : bool, default True
+        Persist index and numpy arrays.
+    force_recreation_of_index : bool, default False
+        Rebuild even when an index file already exists.
+    weight_lc_feats_factor : float, default 1
+        Scalar >1 up-weights LC columns relative to host features
+        (ignored if *use_pca=True*).
+
+    Returns
+    -------
+    str
+        Stem path (without ``.ann`` extension) of the built/loaded index.
+
+    Raises
+    ------
+    ValueError
+        When feature inputs are invalid or required columns are missing.
+    """
     df_bank = pd.read_csv(dataset_bank_path)
 
     # Confirm that the first column is the ZTF ID, and index by ZTF ID
@@ -138,7 +173,38 @@ def re_LAISS_primer(
     host_features=[],
     num_sims=10,
 ):
+    """Assemble input feature vectors (and MC replicas) for a query object.
 
+    Combines LC + host features—optionally swapping in a different host—and
+    returns a dict used later by NN and AD stages.
+
+    Parameters
+    ----------
+    lc_ztf_id : str | None
+        ZTF ID of the transient to query.  Mutually exclusive with
+        *theorized_lightcurve_df*.
+    theorized_lightcurve_df : pandas.DataFrame | None
+        Pre-computed ANTARES-style LC for a theoretical model.
+    host_ztf_id : str | None
+        If given, replace the query object’s host features with those of this
+        transient.
+    dataset_bank_path, path_to_timeseries_folder, path_to_sfd_data_folder : str | Path
+        Locations for cached data.
+    lc_features, host_features : list[str]
+        Names of columns to extract.
+    num_sims : int, default 10
+        Number of Monte-Carlo perturbations for uncertainty propagation.
+
+    Returns
+    -------
+    dict
+        Primer dictionary containing feature arrays, metadata, and MC sims.
+
+    Raises
+    ------
+    ValueError
+        On inconsistent inputs or missing data.
+    """
     feature_names = lc_features + host_features
     if lc_ztf_id is not None and theorized_lightcurve_df is not None:
         print(
@@ -349,6 +415,34 @@ def re_LAISS_nearest_neighbors(
     save_figures=True,
     path_to_figure_directory="../figures",
 ):
+   """Query the ANNOY index and plot nearest-neighbor diagnostics.
+
+    Parameters
+    ----------
+    primer_dict : dict
+        Output from :func:`re_LAISS_primer`.
+    annoy_index_file_stem : str
+        Stem path returned by :func:`re_build_indexed_sample`.
+    use_pca, num_pca_components : see above
+    n : int, default 8
+        Number of neighbours to return.
+    suggest_neighbor_num : bool, default False
+        If True, plots the distance elbow and exits early.
+    max_neighbor_dist : float | None
+        Optional cut on L1 distance.
+    search_k : int, default 1000
+        ANNOY *search_k* parameter.
+    weight_lc_feats_factor : float, default 1
+        Same interpretation as in ``re_build_indexed_sample``.
+    save_figures : bool, default True
+        Write LC + host plots and distance-elbow PNGs.
+    path_to_figure_directory : str | Path
+
+    Returns
+    -------
+    pandas.DataFrame | None
+        Table summarising neighbours (or *None* if *suggest_neighbor_num=True*).
+    """
     start_time = time.time()
     index_file = annoy_index_file_stem + ".ann"
 
@@ -676,6 +770,23 @@ def re_train_AD_model(
     max_samples=1024,
     force_retrain=False,
 ):
+    """Train or load an Isolation-Forest anomaly-detection model.
+
+    Parameters
+    ----------
+    lc_features, host_features : list[str]
+        Feature columns used by the model.
+    path_to_dataset_bank : str | Path
+    path_to_models_directory : str | Path
+    n_estimators, contamination, max_samples : see *pyod.models.IForest*
+    force_retrain : bool, default False
+        Ignore cached model and retrain.
+
+    Returns
+    -------
+    str
+        Filesystem path to the saved ``.pkl`` pipeline.
+    """
     feature_names = lc_features + host_features
     df_bank_path = path_to_dataset_bank
     model_dir = path_to_models_directory
@@ -742,6 +853,28 @@ def re_anomaly_detection(
     max_samples=1024,
     force_retrain=False,
 ):
+   """Run anomaly detection for a single transient (with optional host swap).
+
+    Generates an AD probability plot and calls
+    :func:`re_check_anom_and_plot`.
+
+    Parameters
+    ----------
+    transient_ztf_id : str
+        Target object ID.
+    host_ztf_id_to_swap_in : str | None
+        Replace host features before scoring.
+    lc_features, host_features : list[str]
+    path_* : folders for intermediates, models, and figures.
+    save_figures : bool, default True
+    n_estimators, contamination, max_samples : Isolation-Forest params.
+    force_retrain : bool, default False
+        Pass-through to :func:`re_train_AD_model`.
+
+    Returns
+    -------
+    None
+    """
     print("Running Anomaly Detection:\n")
 
     # Train the model (if necessary)
@@ -842,7 +975,32 @@ def re_LAISS(
     force_AD_retrain=False,  # Retrains and saves AD model even if it already exists
     save_figures=True,  # Saves all figures while running LAISS
 ):
+    """High-level convenience wrapper: build index → NN search → AD.
 
+    Combines the *primer*, *nearest-neighbours*, and *anomaly-detection*
+    pipelines with many toggles for experimentation.
+
+    Parameters
+    ----------
+    transient_ztf_id : str | None
+    theorized_lightcurve_df : pandas.DataFrame | None
+    host_ztf_id_to_swap_in : str | None
+    lc_feature_names, host_feature_names : list[str]
+    neighbors : int
+        Target neighbour count.
+    suggest_neighbor_num : bool
+        Show elbow plot instead of full NN run.
+    run_NN, run_AD : bool
+        Enable/disable each pipeline stage.
+    *Other params*
+        See lower-level helpers for details.
+
+    Returns
+    -------
+    (pandas.DataFrame | None, dict | None)
+        Neighbours table and primer dict when NN stage executed; otherwise
+        *None*.
+    """
     if run_NN or suggest_neighbor_num:
         # build ANNOY indexed sample from dataset bank
         index_stem_name_with_path = re_build_indexed_sample(
@@ -915,7 +1073,6 @@ def re_LAISS(
     return
 
 
-# Note: old corner plots in the figure directory will be overwritten!
 def re_corner_plot(
     neighbors_df,  # from reLAISS nearest neighbors
     primer_dict,  # from reLAISS nearest neighbors
@@ -924,6 +1081,24 @@ def re_corner_plot(
     path_to_figure_directory="../figures",
     save_plots=True,
 ):
+    """Corner-plot visualisation of feature distributions vs. neighbours.
+
+    Parameters
+    ----------
+    neighbors_df : pandas.DataFrame
+        Output from :func:`re_LAISS_nearest_neighbors`.
+    primer_dict : dict
+        Output from :func:`re_LAISS_primer`.
+    path_to_dataset_bank : str | Path
+    remove_outliers_bool : bool, default True
+        Apply robust MAD clipping before plotting.
+    save_plots : bool, default True
+        Write PNGs to ``corner_plots/``.
+
+    Returns
+    -------
+    None
+    """
     if primer_dict is None:
         raise ValueError(
             "primer_dict is None. Try running NN search with reLAISS again."

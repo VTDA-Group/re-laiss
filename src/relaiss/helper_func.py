@@ -28,10 +28,24 @@ from scipy.stats import gamma, uniform
 from dust_extinction.parameter_averages import G23
 from astro_prost.associate import associate_sample
 
-
 @contextmanager
 def re_suppress_output():
-    """Temporarily silence stdout, stderr, warnings *and* all logging messages < CRITICAL."""
+    """Context-manager that silences *everything* except CRITICAL logs.
+
+    Temporarily redirects ``stdout``/``stderr`` to ``os.devnull``, ignores
+    warnings, and disables the root logger for messages < ``logging.CRITICAL``.
+    Restores all streams and the logger state on exit.
+
+    Yields
+    ------
+    None
+        Used only for the ``with`` context block.
+
+    Examples
+    --------
+    >>> with re_suppress_output():
+    ...     noisy_function()
+    """
     with open(os.devnull, "w") as devnull:
         old_stdout, old_stderr = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = devnull, devnull
@@ -47,6 +61,19 @@ def re_suppress_output():
 
 
 def re_getTnsData(ztf_id):
+    """Fetch the TNS cross-match for a given ZTF object.
+
+    Parameters
+    ----------
+    ztf_id : str
+        ZTF object ID, e.g. ``"ZTF23abcxyz"``.
+
+    Returns
+    -------
+    tuple[str, str, float]
+        *(tns_name, tns_type, tns_redshift)*.  Values default to
+        ``("No TNS", "---", -99)`` when no match or metadata are present.
+    """
     locus = antares_client.search.get_by_ztf_object_id(ztf_object_id=ztf_id)
     try:
         tns = locus.catalog_objects["tns_public_objects"][0]
@@ -64,6 +91,25 @@ def re_getExtinctionCorrectedMag(
     av_in_raw_df_bank,
     path_to_sfd_folder=None,
 ):
+    """Milky-Way extinction-corrected Kron magnitude for one passband.
+
+    Parameters
+    ----------
+    transient_row : pandas.Series
+        Row from the raw host-feature DataFrame.
+    band : {'g', 'r', 'i', 'z'}
+        Photometric filter to correct.
+    av_in_raw_df_bank : bool
+        If *True* use ``transient_row["A_V"]`` directly; otherwise compute
+        E(B−V) from the SFD dust map in *path_to_sfd_folder*.
+    path_to_sfd_folder : str | pathlib.Path | None, optional
+        Folder containing *SFDMap* dust files when A_V is not pre-computed.
+
+    Returns
+    -------
+    float
+        Extinction-corrected Kron magnitude.
+    """
     central_wv_filters = {"g": 4849.11, "r": 6201.20, "i": 7534.96, "z": 8674.20}
     MW_RV = 3.1
     ext = G23(Rv=MW_RV)
@@ -90,7 +136,36 @@ def re_build_dataset_bank(
     building_entire_df_bank=False,
     building_for_AD=False,
 ):
+    """Clean, impute, dust-correct, and engineer features for reLAISS.
 
+    Handles both archival and *theorized* light-curve inputs, performs KNN or
+    mean imputation, builds colour indices, propagates uncertainties, and
+    returns a ready-to-index DataFrame.
+
+    Parameters
+    ----------
+    raw_df_bank : pandas.DataFrame
+        Input light-curve + host-galaxy features (one or many rows).
+    av_in_raw_df_bank : bool
+        Whether A_V is already present in *raw_df_bank*.
+    path_to_sfd_folder : str | Path | None, optional
+        Directory with SFD dust maps (required if ``av_in_raw_df_bank=False``).
+    theorized : bool, default False
+        Set *True* when the input is a simulated/theoretical light curve that
+        lacks host features.
+    path_to_dataset_bank : str | Path | None, optional
+        Existing bank used to fit the imputer when not building the entire set.
+    building_entire_df_bank : bool, default False
+        If *True*, fit the imputer on *raw_df_bank* itself.
+    building_for_AD : bool, default False
+        Use simpler mean imputation and suppress verbose prints for
+        anomaly-detection pipelines.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Fully hydrated feature table indexed by ``ztf_object_id``.
+    """
     raw_lc_features = constants.lc_features_const.copy()
     raw_host_features = constants.raw_host_features_const.copy()
 
@@ -232,6 +307,41 @@ def re_extract_lc_and_host_features(
     building_for_AD=False,
     swapped_host=False,
 ):
+    """End-to-end extraction of light-curve **and** host-galaxy features.
+
+    1. Pulls ZTF photometry from ANTARES (or uses a supplied theoretical LC).
+    2. Computes time-series features with *lightcurve_engineer*.
+    3. Associates the most probable PS1 host with PROST and appends raw host
+       features.
+    4. Dust-corrects, builds colours, imputes gaps, and writes an optional CSV.
+
+    Parameters
+    ----------
+    ztf_id : str
+        ZTF object identifier (ignored when *theorized_lightcurve_df* is given).
+    path_to_timeseries_folder : str | Path
+        Folder to cache per-object time-series CSVs.
+    path_to_sfd_data_folder : str | Path
+        Location of SFD dust maps.
+    theorized_lightcurve_df : pandas.DataFrame | None, optional
+        Pre-simulated LC in ANTARES column format (``ant_passband``, ``ant_mjd``,
+        ``ant_mag``, ``ant_magerr``).
+    show_lc : bool, default False
+        Plot the g/r light curves.
+    show_host : bool, default True
+        Print PS1 cut-out URL on successful host association.
+    store_csv : bool, default False
+        Write a timeseries CSV next to *path_to_timeseries_folder*.
+    building_for_AD : bool, default False
+        Quieter prints + mean imputation only.
+    swapped_host : bool, default False
+        Indicator used when re-running with an alternate host galaxy.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Hydrated feature rows for every increasing-epoch subset of the LC.
+    """
     start_time = time.time()
     df_path = path_to_timeseries_folder
 
@@ -492,8 +602,19 @@ def re_extract_lc_and_host_features(
 
 
 def _ps1_list_filenames(ra_deg, dec_deg, flt):
-    """
-    Return the first stack FITS filename for (ra,dec) and *flt* or None.
+    """Return the first PS1 stacked-image FITS filename at (RA, Dec).
+
+    Parameters
+    ----------
+    ra_deg, dec_deg : float
+        ICRS coordinates in degrees.
+    flt : str
+        PS1 filter letter (``'g' 'r' 'i' 'z' 'y'``).
+
+    Returns
+    -------
+    str | None
+        Filename, e.g. ``'tess-skycell1001.012-i.fits'``, or *None* when absent.
     """
     url = (
         "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
@@ -509,8 +630,26 @@ def _ps1_list_filenames(ra_deg, dec_deg, flt):
 
 
 def fetch_ps1_cutout(ra_deg, dec_deg, *, size_pix=100, flt="r"):
-    """
-    Grayscale cut-out (2-D float) in a single PS1 filter.
+    """Download a single-filter PS1 FITS cut-out around *(RA, Dec)*.
+
+    Parameters
+    ----------
+    ra_deg, dec_deg : float
+        ICRS coordinates (degrees).
+    size_pix : int, default 100
+        Width/height of the square cut-out in PS1 pixels.
+    flt : str, default 'r'
+        PS1 filter.
+
+    Returns
+    -------
+    numpy.ndarray
+        2-D float array (grayscale image).
+
+    Raises
+    ------
+    RuntimeError
+        When the target lies outside the PS1 footprint or no data exist.
     """
     fits_name = _ps1_list_filenames(ra_deg, dec_deg, flt)
     if fits_name is None:
@@ -537,9 +676,21 @@ def fetch_ps1_cutout(ra_deg, dec_deg, *, size_pix=100, flt="r"):
 
 
 def fetch_ps1_rgb_jpeg(ra_deg, dec_deg, *, size_pix=100):
-    """
-    Colour JPEG (H,W,3  uint8) using PS1 g/r/i stacks.
-    Falls back by *raising* RuntimeError when the server lacks colour data.
+    """Fetch an RGB JPEG cut-out (g/r/i) from PS1.
+
+    Falls back via *raising* ``RuntimeError`` when PS1 lacks colour data.
+
+    Parameters
+    ----------
+    ra_deg, dec_deg : float
+        ICRS coordinates (degrees).
+    size_pix : int, default 100
+        Square cut-out size in pixels.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(H, W, 3)`` uint8 array in RGB order.
     """
     url = (
         "https://ps1images.stsci.edu/cgi-bin/fitscut.cgi"
@@ -567,6 +718,33 @@ def re_plot_lightcurves(
     figure_path,
     save_figures=True,
 ):
+    """Stack reference + neighbour light curves in a single figure.
+
+    Parameters
+    ----------
+    primer_dict : dict
+        Metadata for the reference transient (e.g., TNS name/class/redshift).
+    plot_label : str
+        Text used for figure title and filename.
+    theorized_lightcurve_df : pandas.DataFrame | None
+        Optional simulated LC to plot as the reference.
+    neighbor_ztfids : list[str]
+        ZTF IDs of retrieved neighbours (<= 8 plotted).
+    ann_locus_l : list[antares_client.objects.Locus]
+        Corresponding ANTARES loci holding photometry.
+    ann_dists : list[float]
+        ANN distances for labeling.
+    tns_ann_names, tns_ann_classes, tns_ann_zs : list
+        TNS metadata for neighbours.
+    figure_path : str | Path
+        Root folder to save PNGs in ``lightcurves/``.
+    save_figures : bool, default True
+        Write the PNG to disk.
+
+    Returns
+    -------
+    None
+    """
     print("Making a plot of stacked lightcurves...")
 
     if primer_dict["lc_tns_z"] is None:
@@ -737,12 +915,35 @@ def re_plot_hosts(
     change_contrast=False,
     prefer_color=True,
 ):
-    """
-    Build 3×3 grids of PS1 thumbnails for each row in *df* and write a PDF.
+    """Create 3×3 PS1 thumbnail grids for candidate host galaxies.
 
-    Set *prefer_color=False* for r-band grayscale only.  With *prefer_color=True*
-    (default) the code *tries* colour first and quietly falls back to grayscale
-    when colour isn’t available.
+    Saves each page to a multi-page PDF and optionally shows colour cut-outs
+    when available.
+
+    Parameters
+    ----------
+    ztfid_ref : str
+        Reference transient ID (title use only).
+    plot_label : str
+        Basename for the output PDF.
+    df : pandas.DataFrame
+        Table with ``ZTFID``, ``HOST_RA``, ``HOST_DEC`` columns.
+    figure_path : str | Path
+        Destination directory for ``host_grids/*.pdf``.
+    ann_num : int
+        ANN neighbour index (used in filename).
+    save_pdf : bool, default True
+        Whether to write the PDF.
+    imsizepix : int, default 100
+        PS1 cut-out size in pixels.
+    change_contrast : bool, default False
+        Use a shallower stretch (93 %) for grayscale images.
+    prefer_color : bool, default True
+        Try RGB first, fall back to r-band grayscale.
+
+    Returns
+    -------
+    None
     """
 
     host_grid_path = figure_path + "/host_grids"
@@ -833,6 +1034,40 @@ def re_check_anom_and_plot(
     savefig,
     figure_path,
 ):
+    """Run anomaly-detector probabilities over a time-series and plot results.
+
+    Produces a two-panel figure: light curve with anomaly epoch marked, and
+    rolling anomaly/normal probabilities.
+
+    Parameters
+    ----------
+    clf : sklearn.base.ClassifierMixin
+        Trained binary classifier with ``predict_proba``.
+    input_ztf_id : str
+        ID of the object evaluated.
+    swapped_host_ztf_id : str | None
+        Alternate host ID (annotated in title).
+    input_spec_cls : str | None
+        Spectroscopic class label for title.
+    input_spec_z : float | str | None
+        Redshift for title.
+    anom_thresh : float
+        Probability (%) above which an epoch is flagged anomalous.
+    timeseries_df_full : pandas.DataFrame
+        Hydrated LC + host features, including ``obs_num`` and ``mjd_cutoff``.
+    timeseries_df_features_only : pandas.DataFrame
+        Same rows but feature columns only (classifier input).
+    ref_info : antares_client.objects.Locus
+        ANTARES locus for retrieving original photometry.
+    savefig : bool
+        Save the plot as ``AD/*.pdf`` inside *figure_path*.
+    figure_path : str | Path
+        Output directory.
+
+    Returns
+    -------
+    None
+    """
     anom_obj_df = timeseries_df_features_only
 
     pred_prob_anom = 100 * clf.predict_proba(anom_obj_df)
@@ -1000,6 +1235,30 @@ def re_get_timeseries_df(
     building_for_AD=False,
     swapped_host=False,
 ):
+    """Retrieve or build a fully-hydrated time-series feature DataFrame.
+
+    Checks disk cache; otherwise calls
+    ``re_extract_lc_and_host_features`` and optionally writes the CSV.
+
+    Parameters
+    ----------
+    ztf_id : str
+    path_to_timeseries_folder : str | Path
+    path_to_sfd_data_folder : str | Path
+    theorized_lightcurve_df : pandas.DataFrame | None
+        If provided, builds features for a simulated LC.
+    save_timeseries : bool, default False
+        Persist CSV to disk.
+    path_to_dataset_bank : str | Path | None
+        Reference bank for imputers.
+    building_for_AD : bool, default False
+    swapped_host : bool, default False
+
+    Returns
+    -------
+    pandas.DataFrame
+        Feature rows ready for indexing or AD.
+    """
     if theorized_lightcurve_df is not None:
         print("Extracting full lightcurve features for theorized lightcurve...")
         timeseries_df = re_extract_lc_and_host_features(
@@ -1048,6 +1307,24 @@ def re_get_timeseries_df(
 def create_re_laiss_features_dict(
     lc_feature_names, host_feature_names, lc_groups=4, host_groups=4
 ):
+    """Partition feature names into evenly-sized groups for weighting.
+
+    Parameters
+    ----------
+    lc_feature_names : list[str]
+        Names of light-curve features.
+    host_feature_names : list[str]
+        Names of host-galaxy features.
+    lc_groups : int, default 4
+        Number of LC groups in the output dict.
+    host_groups : int, default 4
+        Number of host groups in the output dict.
+
+    Returns
+    -------
+    dict[str, list[str]]
+        ``{'lc_group_1': [...], 'host_group_1': [...], ...}``
+    """
     re_laiss_features_dict = {}
 
     # Split light curve features into evenly sized chunks
