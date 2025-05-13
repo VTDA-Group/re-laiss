@@ -27,7 +27,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 def build_dataset_bank(
     raw_df_bank,
-    av_in_raw_df_bank,
+    av_in_raw_df_bank=False,
     path_to_sfd_folder=None,
     theorized=False,
     path_to_dataset_bank=None,
@@ -89,10 +89,9 @@ def build_dataset_bank(
     # Check to make sure all required features are in the raw data
     missing_cols = [col for col in raw_features if col not in raw_df_bank.columns]
     if missing_cols:
-        print(
+        raise ValueError(
             f"KeyError: The following columns for this transient are not in the raw data: {missing_cols}. Abort!"
         )
-        return
 
     # Impute missing features
     test_dataset_bank = raw_df_bank.replace([np.inf, -np.inf, -999], np.nan).dropna(

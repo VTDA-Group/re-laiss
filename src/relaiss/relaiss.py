@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 from .index import build_indexed_sample
+from .features import build_dataset_bank
 
 import annoy
 import numpy as np
