@@ -12,7 +12,7 @@ from scipy.stats import gamma, uniform
 from sklearn.impute import KNNImputer, SimpleImputer
 
 from . import constants
-from .fetch import suppress_output
+from .utils import suppress_output
 from astro_prost.associate import associate_sample
 import numpy as np
 import pandas as pd
@@ -26,7 +26,6 @@ import warnings
 from sklearn.cluster import DBSCAN
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-
 
 def build_dataset_bank(
     raw_df_bank,
@@ -444,7 +443,7 @@ def extract_lc_and_host_features(
             save = False
             progress_bar = False
             cat_cols = True
-            with re_suppress_output():
+            with suppress_output():
                 hosts = associate_sample(
                     transient_catalog,
                     coord_cols=transient_coord_cols,
