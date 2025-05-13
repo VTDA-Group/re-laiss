@@ -87,6 +87,9 @@ class ReLAISS:
         print("Engineering host features...")
         raw_df_bank = pd.read_csv(bank_path)
         hydrated_bank = build_dataset_bank(raw_df_bank)
+        print("Hydrated bank:")
+        print(hydrated_bank)
+        print("Saving at :", bank_path)
         hydrated_bank.to_csv(bank_path)
 
         # build or reuse index
