@@ -348,9 +348,9 @@ def corner_plot(
     Parameters
     ----------
     neighbors_df : pandas.DataFrame
-        Output from :func:`re_LAISS_nearest_neighbors`.
+        Output from :func:`rl.find_neighbors`.
     primer_dict : dict
-        Output from :func:`re_LAISS_primer`.
+        Output from :func:`primer`.
     path_to_dataset_bank : str | Path
     remove_outliers_bool : bool, default True
         Apply robust MAD clipping before plotting.
