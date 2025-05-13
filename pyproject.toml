@@ -4,7 +4,7 @@ name = "relaiss"
 license = {file = "LICENSE"}
 readme = "README.md"
 authors = [
-    { name = "Evan Reynolds", email = ""},
+    { name = "Evan Reynolds"},
     { name = "Alex Gagliano", email = "gaglian2@mit.edu" },
     { name = "Ashley Villar", email = "ashleyvillar@cfa.harvard.edu"}
 ]
@@ -20,14 +20,23 @@ dynamic = ["version"]
 requires-python = ">=3.8"
 dependencies = [
   "numpy", 
-  "astropy", 
   "matplotlib", 
   "pandas", 
-  "scikit-learn", 
   "scipy", 
   "requests",
   "sfdmap; python_version <= '3.9'",
   "sfdmap2; python_version >= '3.9'",
+  "matplotlib>=3.5",
+  "astropy>=5.0",
+  "annoy>=1.17",
+  "kneed",
+  "statsmodels",
+  "scikit-learn>=1.3",
+  "pyod",
+  "corner",
+  "dust-extinction",
+  "astro-prost",
+  "antares-client"
 ]
 
 [project.urls]
