@@ -1,47 +1,15 @@
+import io
+import os
+
+import antares_client
 import numpy as np
 import pandas as pd
-import os
-import sys
-import warnings
-from contextlib import contextmanager
-import io
-import logging
 import requests
-import antares_client
 from astropy.io import fits
 from PIL import Image
+
 from .features import extract_lc_and_host_features
 
-@contextmanager
-def suppress_output():
-    """Context-manager that silences *everything* except CRITICAL logs.
-
-    Temporarily redirects ``stdout``/``stderr`` to ``os.devnull``, ignores
-    warnings, and disables the root logger for messages < ``logging.CRITICAL``.
-    Restores all streams and the logger state on exit.
-
-    Yields
-    ------
-    None
-        Used only for the ``with`` context block.
-
-    Examples
-    --------
-    >>> with re_suppress_output():
-    ...     noisy_function()
-    """
-    with open(os.devnull, "w") as devnull:
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        sys.stdout, sys.stderr = devnull, devnull
-
-        logging.disable(logging.CRITICAL)
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                yield
-        finally:
-            logging.disable(logging.NOTSET)
-            sys.stdout, sys.stderr = old_stdout, old_stderr
 
 def get_TNS_data(ztf_id):
     """Fetch the TNS cross-match for a given ZTF object.

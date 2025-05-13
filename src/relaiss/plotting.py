@@ -1,20 +1,22 @@
-import corner 
-import numpy as np
-import os
-import matplotlib.pyplot as plt 
-import pandas as pd
-from .features import create_features_dict
-from .fetch import fetch_ps1_cutout, fetch_ps1_rgb_jpeg
-import astropy.units as u
-from astropy.coordinates import SkyCoord
-from matplotlib.backends.backend_pdf import PdfPages
 import logging
 import math
-import antares_client
+import os
 from pathlib import Path
+
+import antares_client
+import astropy.units as u
+import corner
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+from astropy.coordinates import SkyCoord
 from astropy.visualization import AsinhStretch, PercentileInterval
+from matplotlib.backends.backend_pdf import PdfPages
 from statsmodels import robust
+
+from .features import create_features_dict
+from .fetch import fetch_ps1_cutout, fetch_ps1_rgb_jpeg
+
 
 def plot_lightcurves(
     primer_dict,
@@ -199,7 +201,7 @@ def plot_lightcurves(
             box = ax.get_position()
             ax.set_position([box.x0, box.y0, box.width, box.height * scale])
 
-        except Exception as e:
+        except Exception:
             print(f"Something went wrong with plotting {ztfname}! Excluding from plot.")
 
     if save_figures:
@@ -302,7 +304,7 @@ def plot_hosts(
                     try:
                         im = fetch_ps1_rgb_jpeg(ra, dec, size_pix=imsizepix)
                         ax.imshow(im, origin="lower")
-                    except Exception as col_err:
+                    except Exception:
                         im = fetch_ps1_cutout(ra, dec, size_pix=imsizepix, flt="r")
                         stretch = AsinhStretch() + PercentileInterval(
                             93 if change_contrast else 99.5
@@ -489,7 +491,7 @@ def corner_plot(
         plt.show()
 
     if save_plots:
-        print("Corner plots saved to" + path_to_figure_directory + f"/corner_plots")
+        print("Corner plots saved to" + path_to_figure_directory + "/corner_plots")
     else:
         print("Finished creating all corner plots!")
     return

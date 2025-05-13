@@ -1,5 +1,9 @@
+import logging
+import os
+import sys
+import warnings
 from contextlib import contextmanager
-import warnings, sys, os, logging
+
 
 @contextmanager
 def suppress_output():

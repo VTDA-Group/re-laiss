@@ -1,29 +1,27 @@
-import os
 import math
-import time
+import os
 import tempfile
+import time
+import warnings
 
-import numpy as np
-import matplotlib.pyplot as plt
 import antares_client
-from astropy.coordinates import SkyCoord
 import astropy.units as u
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from astro_prost.associate import associate_sample
+from astropy.coordinates import SkyCoord
+from dust_extinction.parameter_averages import G23
+from numpy.lib.stride_tricks import sliding_window_view
+from scipy.interpolate import interp1d
+from scipy.signal import find_peaks
 from scipy.stats import gamma, uniform
+from sfdmap2 import sfdmap
+from sklearn.cluster import DBSCAN
 from sklearn.impute import KNNImputer, SimpleImputer
 
 from . import constants
 from .utils import suppress_output
-from astro_prost.associate import associate_sample
-import numpy as np
-import pandas as pd
-from scipy.interpolate import interp1d
-from scipy.signal import find_peaks
-from astropy.coordinates import SkyCoord
-from sfdmap2 import sfdmap
-from dust_extinction.parameter_averages import G23
-from numpy.lib.stride_tricks import sliding_window_view
-import warnings
-from sklearn.cluster import DBSCAN
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -155,7 +153,7 @@ def build_dataset_bank(
     # Engineer the remaining features
     if not theorized:
         if not building_for_AD:
-            print(f"Engineering remaining features...")
+            print("Engineering remaining features...")
         # Correct host magnitude features for dust
         for band in ["g", "r", "i", "z"]:
             wip_dataset_bank[band + "KronMagCorrected"] = wip_dataset_bank.apply(
@@ -538,7 +536,7 @@ def extract_lc_and_host_features(
             print(f"Saved timeseries features for {ztf_id}!\n")
         else:
             lc_and_hosts_df_hydrated.to_csv(f"{df_path}/theorized_timeseries.csv")
-            print(f"Saved timeseries features for theorized lightcurve!\n")
+            print("Saved timeseries features for theorized lightcurve!\n")
 
     return lc_and_hosts_df_hydrated
 
@@ -913,7 +911,7 @@ class SupernovaFeatureExtractor:
             gr_at_gpeak = self.g["mag"][np.argmin(self.g["mag"])] - np.interp(
                 tpg, r_time, r_mag
             )
-        except Exception as e:
+        except Exception:
             # print(f"Warning: Could not compute g-r at g-band peak due to: {e}")
             gr_at_gpeak = np.nan
         return np.mean(color), gr_at_gpeak, mean_rate

@@ -1,16 +1,19 @@
-import pandas as pd
-from sklearn.decomposition import PCA
-from sklearn import preprocessing
-from .fetch import get_timeseries_df, get_TNS_data
-from .plotting import plot_hosts, plot_lightcurves
+import os
+import time
+
+import annoy
 import antares_client
 import matplotlib.pyplot as plt
 import numpy as np
-import annoy
-import time
+import pandas as pd
 from kneed import KneeLocator
+from sklearn import preprocessing
+from sklearn.decomposition import PCA
+
 from . import constants
-import os
+from .fetch import get_timeseries_df, get_TNS_data
+from .plotting import plot_hosts, plot_lightcurves
+
 
 def primer(
     lc_ztf_id,
@@ -349,7 +352,7 @@ def LAISS_nearest_neighbors(
             pca = PCA(n_components=num_pca_components, random_state=random_seed)
 
             # pca needs to be fit first to the same data as trained
-            trained_PCA_feat_arr_scaled_pca = pca.fit_transform(
+            _ = pca.fit(
                 trained_PCA_feat_arr_scaled
             )
             locus_feat_arr_pca = pca.transform(locus_feat_arr_scaled)
@@ -510,14 +513,14 @@ def LAISS_nearest_neighbors(
 
     # Print the nearest neighbors and organize them for storage
     if primer_dict["lc_ztf_id"]:
-        print(f"\t\t\t\t\t\t ZTFID     IAU_NAME SPEC  Z")
+        print("\t\t\t\t\t\t ZTFID     IAU_NAME SPEC  Z")
     else:
-        print(f"\t\t\t\t\tIAU  SPEC  Z")
+        print("\t\t\t\t\tIAU  SPEC  Z")
     print(
         f"Input transient: {'https://alerce.online/object/'+primer_dict['lc_ztf_id'] if primer_dict['lc_ztf_id'] else 'Theorized Lightcurve,'} {primer_dict['lc_tns_name']} {primer_dict['lc_tns_cls']} {primer_dict['lc_tns_z']}\n"
     )
     if primer_dict["host_ztf_id"] is not None:
-        print(f"\t\t\t\t\t\t\t\t\tZTFID     IAU_NAME SPEC  Z")
+        print("\t\t\t\t\t\t\t\t\tZTFID     IAU_NAME SPEC  Z")
         print(
             f"Transient with host swapped into input: https://alerce.online/object/{primer_dict['host_ztf_id']} {primer_dict['host_tns_name']} {primer_dict['host_tns_cls']} {primer_dict['host_tns_z']}\n"
         )

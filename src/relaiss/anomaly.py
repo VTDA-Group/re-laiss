@@ -1,15 +1,16 @@
-import os 
-import pandas as pd
+import os
 import pickle
-import numpy as np
-import matplotlib.pyplot as plt
 
+import antares_client
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from pyod.models.iforest import IForest
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from pyod.models.iforest import IForest
 
-import antares_client                    
 from .fetch import get_timeseries_df, get_TNS_data
+
 
 def train_AD_model(
     lc_features,

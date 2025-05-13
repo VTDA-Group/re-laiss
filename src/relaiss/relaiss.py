@@ -1,14 +1,16 @@
 from __future__ import annotations
+
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Optional
+
+import annoy
 import numpy as np
 import pandas as pd
-import annoy
-from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from typing import Optional, Sequence
+from sklearn.preprocessing import StandardScaler
 
 # --------------- helper imports (internal low‑level funcs) ------------------
-from .index  import build_indexed_sample
 from .search import primer
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
@@ -52,7 +54,7 @@ class ReLAISS:
         weight_lc: float = 1.0,
         use_pca: bool = False,
         n_components: Optional[int] = None,
-    ) -> "ReLAISS":
+    ) -> ReLAISS:
         """Load the shipped 20‑k reference bank and build (or load) its ANNOY index.
 
         Parameters
@@ -60,7 +62,7 @@ class ReLAISS:
         bank_path : str or Path
             CSV containing hydrated features.
         lc_features, host_features : sequence of str or *None*
-            Columns to include; defaults to constants in `helper_func.constants`.
+            Columns to include; defaults to constants in `constants`.
         weight_lc : float, default 1.0
             Up‑weight factor for LC features (ignored when *use_pca* is True).
         use_pca : bool, default False
@@ -68,7 +70,7 @@ class ReLAISS:
         n_components : int | None
             PCA dimensionality; *None* keeps 99 % variance.
         """
-        from helper_func import constants as _c
+        import constants as _c
 
         lc_features = list(lc_features) if lc_features else _c.lc_features_const.copy()
         host_features = list(host_features) if host_features else _c.raw_host_features_const.copy()
@@ -129,7 +131,7 @@ class ReLAISS:
         """
         # ------------------------------------------------------------------
         # 1. Build query vector via existing feature‑extraction pipeline.
-        primer = primer(
+        primer_vec = primer(
             lc_ztf_id=ztf_id,
             theorized_lightcurve_df=None,
             host_ztf_id=None,
@@ -141,7 +143,7 @@ class ReLAISS:
             num_sims=0,
             save_timeseries=False,
         )
-        vec = primer["locus_feat_arr"]
+        vec = primer_vec["locus_feat_arr"]
         vec = self.scaler.transform([vec])[0]
         if self.pca is not None:
             vec = self.pca.transform([vec])[0]
