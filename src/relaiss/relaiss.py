@@ -1,14 +1,4 @@
 from __future__ import annotations
-
-"""Light‑weight public API for reLAISS.
-
-Usage
------
->>> import relaiss as rl
->>> index = rl.load_reference()          # returns a ReLAISS object with index loaded
->>> df = index.find_neighbors("ZTF23abcxyz", k=5)
-"""
-
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -22,7 +12,6 @@ from .index  import re_build_indexed_sample
 from .search import re_LAISS_primer
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
-
 
 class ReLAISS:
     """A minimal, user‑facing wrapper around the full reLAISS tool‑chain."""

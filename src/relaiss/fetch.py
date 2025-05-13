@@ -10,6 +10,7 @@ import requests
 import antares_client
 from astropy.io import fits
 from PIL import Image
+from .features import extract_lc_and_host_features
 
 @contextmanager
 def suppress_output():
@@ -42,7 +43,7 @@ def suppress_output():
             logging.disable(logging.NOTSET)
             sys.stdout, sys.stderr = old_stdout, old_stderr
 
-def getTnsData(ztf_id):
+def get_TNS_data(ztf_id):
     """Fetch the TNS cross-match for a given ZTF object.
 
     Parameters
@@ -182,7 +183,7 @@ def get_timeseries_df(
     """Retrieve or build a fully-hydrated time-series feature DataFrame.
 
     Checks disk cache; otherwise calls
-    ``re_extract_lc_and_host_features`` and optionally writes the CSV.
+    ``extract_lc_and_host_features`` and optionally writes the CSV.
 
     Parameters
     ----------
@@ -205,7 +206,7 @@ def get_timeseries_df(
     """
     if theorized_lightcurve_df is not None:
         print("Extracting full lightcurve features for theorized lightcurve...")
-        timeseries_df = re_extract_lc_and_host_features(
+        timeseries_df = extract_lc_and_host_features(
             ztf_id=ztf_id,
             theorized_lightcurve_df=theorized_lightcurve_df,
             path_to_timeseries_folder=path_to_timeseries_folder,
@@ -233,7 +234,7 @@ def get_timeseries_df(
             print(
                 f"Timeseries dataframe does not exist. Re-extracting lightcurve and host features for {ztf_id}."
             )
-        timeseries_df = re_extract_lc_and_host_features(
+        timeseries_df = extract_lc_and_host_features(
             ztf_id=ztf_id,
             theorized_lightcurve_df=theorized_lightcurve_df,
             path_to_timeseries_folder=path_to_timeseries_folder,

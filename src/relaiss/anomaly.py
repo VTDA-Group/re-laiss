@@ -1,3 +1,15 @@
+import os 
+import pandas as pd
+import pickle
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from pyod.models.iforest import IForest
+
+import antares_client                    
+from .fetch import get_timeseries_df, get_TNS_data
 
 def train_AD_model(
     lc_features,
@@ -95,7 +107,7 @@ def anomaly_detection(
     """Run anomaly detection for a single transient (with optional host swap).
 
     Generates an AD probability plot and calls
-    :func:`re_check_anom_and_plot`.
+    :func:`check_anom_and_plot`.
 
     Parameters
     ----------
@@ -108,7 +120,7 @@ def anomaly_detection(
     save_figures : bool, default True
     n_estimators, contamination, max_samples : Isolation-Forest params.
     force_retrain : bool, default False
-        Pass-through to :func:`re_train_AD_model`.
+        Pass-through to :func:`train_AD_model`.
 
     Returns
     -------
@@ -118,7 +130,7 @@ def anomaly_detection(
     print("Running Anomaly Detection:\n")
 
     # Train the model (if necessary)
-    path_to_trained_model = re_train_AD_model(
+    path_to_trained_model = train_AD_model(
         lc_features,
         host_features,
         path_to_dataset_bank,
@@ -135,7 +147,7 @@ def anomaly_detection(
 
     # Load the timeseries dataframe
     print("\nRebuilding timeseries dataframe(s) for AD...")
-    timeseries_df = re_get_timeseries_df(
+    timeseries_df = get_timeseries_df(
         ztf_id=transient_ztf_id,
         theorized_lightcurve_df=None,
         path_to_timeseries_folder=path_to_timeseries_folder,
@@ -147,7 +159,7 @@ def anomaly_detection(
 
     if host_ztf_id_to_swap_in is not None:
         # Swap in the host galaxy
-        swapped_host_timeseries_df = re_get_timeseries_df(
+        swapped_host_timeseries_df = get_timeseries_df(
             ztf_id=host_ztf_id_to_swap_in,
             theorized_lightcurve_df=None,
             path_to_timeseries_folder=path_to_timeseries_folder,
@@ -167,9 +179,9 @@ def anomaly_detection(
         ztf_object_id=transient_ztf_id
     )
 
-    tns_name, tns_cls, tns_z = re_getTnsData(transient_ztf_id)
+    tns_name, tns_cls, tns_z = get_TNS_data(transient_ztf_id)
 
-    re_check_anom_and_plot(
+    check_anom_and_plot(
         clf=clf,
         input_ztf_id=transient_ztf_id,
         swapped_host_ztf_id=host_ztf_id_to_swap_in,

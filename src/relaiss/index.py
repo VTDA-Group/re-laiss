@@ -1,3 +1,9 @@
+import numpy as np 
+import pandas as pd
+import os
+import annoy 
+from sklearn import preprocessing
+from sklearn.decomposition import PCA
 
 def build_indexed_sample(
     dataset_bank_path,

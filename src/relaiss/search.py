@@ -1,5 +1,18 @@
+import pandas as pd
+from sklearn.decomposition import PCA
+from sklearn import preprocessing
+from .fetch import get_timeseries_df, get_TNS_data
+from .plotting import plot_hosts, plot_lightcurves
+import antares_client
+import matplotlib.pyplot as plt
+import numpy as np
+import annoy
+import time
+from kneed import KneeLocator
+from . import constants
+import os
 
-def re_LAISS_primer(
+def LAISS_primer(
     lc_ztf_id,
     theorized_lightcurve_df,
     dataset_bank_path,
@@ -102,7 +115,7 @@ def re_LAISS_primer(
                 lc_galaxy_dec = df_bank_input_only.iloc[0].host_dec
 
             if save_timeseries:
-                timeseries_df = re_get_timeseries_df(
+                timeseries_df = get_timeseries_df(
                     ztf_id=ztf_id,
                     theorized_lightcurve_df=None,
                     path_to_timeseries_folder=path_to_timeseries_folder,
@@ -117,7 +130,7 @@ def re_LAISS_primer(
             # Extract timeseries dataframe
             if ztf_id is not None:
                 print(f"{ztf_id} is not in dataset_bank.")
-            timeseries_df = re_get_timeseries_df(
+            timeseries_df = get_timeseries_df(
                 ztf_id=ztf_id,
                 theorized_lightcurve_df=(
                     theorized_lightcurve_df if not host_loop else None
@@ -158,7 +171,7 @@ def re_LAISS_primer(
 
         # Pull TNS data for ztf_id
         if ztf_id is not None:
-            tns_name, tns_cls, tns_z = re_getTnsData(ztf_id)
+            tns_name, tns_cls, tns_z = get_TNS_data(ztf_id)
         else:
             tns_name, tns_cls, tns_z = "No TNS", "---", -99
 
@@ -238,7 +251,7 @@ def re_LAISS_primer(
     return output_dict
 
 
-def re_LAISS_nearest_neighbors(
+def LAISS_nearest_neighbors(
     primer_dict,
     theorized_lightcurve_df,
     path_to_dataset_bank,
@@ -489,7 +502,7 @@ def re_LAISS_nearest_neighbors(
         ann_locus = antares_client.search.get_by_ztf_object_id(ztf_object_id=idx_arr[i])
         ann_locus_l.append(ann_locus)
 
-        tns_ann_name, tns_ann_cls, tns_ann_z = re_getTnsData(idx_arr[i])
+        tns_ann_name, tns_ann_cls, tns_ann_z = get_TNS_data(idx_arr[i])
 
         tns_ann_names.append(tns_ann_name)
         tns_ann_classes.append(tns_ann_cls)
@@ -510,7 +523,7 @@ def re_LAISS_nearest_neighbors(
         )
 
     # Plot lightcurves
-    re_plot_lightcurves(
+    plot_lightcurves(
         primer_dict=primer_dict,
         plot_label=plot_label,
         theorized_lightcurve_df=theorized_lightcurve_df,
@@ -554,7 +567,7 @@ def re_LAISS_nearest_neighbors(
         columns=["ZTFID", "HOST_RA", "HOST_DEC"],
     )
 
-    re_plot_hosts(
+    plot_hosts(
         ztfid_ref=(
             primer_dict["lc_ztf_id"]
             if primer_dict["host_ztf_id"] is None

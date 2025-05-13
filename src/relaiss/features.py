@@ -1,7 +1,24 @@
+import os
+import math
+import time
+import tempfile
+
+import numpy as np
+import matplotlib.pyplot as plt
+import antares_client
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+from scipy.stats import gamma, uniform
+from sklearn.impute import KNNImputer, SimpleImputer
+
+from . import constants
+from .fetch import re_suppress_output
+from astro_prost.associate import associate_sample
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
+from astropy.coordinates import SkyCoord
 from sfdmap2 import sfdmap
 from dust_extinction.parameter_averages import G23
 from numpy.lib.stride_tricks import sliding_window_view
@@ -9,7 +26,6 @@ import warnings
 from sklearn.cluster import DBSCAN
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-
 
 
 def build_dataset_bank(
@@ -144,7 +160,7 @@ def build_dataset_bank(
         # Correct host magnitude features for dust
         for band in ["g", "r", "i", "z"]:
             wip_dataset_bank[band + "KronMagCorrected"] = wip_dataset_bank.apply(
-                lambda row: re_getExtinctionCorrectedMag(
+                lambda row: getExtinctionCorrectedMag(
                     transient_row=row,
                     band=band,
                     av_in_raw_df_bank=av_in_raw_df_bank,
@@ -179,7 +195,7 @@ def build_dataset_bank(
 
     return final_df_bank
 
-def create_re_laiss_features_dict(
+def create_features_dict(
     lc_feature_names, host_feature_names, lc_groups=4, host_groups=4
 ):
     """Partition feature names into evenly-sized groups for weighting.
@@ -501,7 +517,7 @@ def extract_lc_and_host_features(
     # Engineer additonal features in build_dataset_bank function
     if building_for_AD:
         print("Engineering features...")
-    lc_and_hosts_df_hydrated = re_build_dataset_bank(
+    lc_and_hosts_df_hydrated = build_dataset_bank(
         raw_df_bank=(
             lc_and_hosts_df
             if theorized_lightcurve_df is None

@@ -1,3 +1,21 @@
+import corner 
+import numpy as np
+import os
+import matplotlib.pyplot as plt 
+import pandas as pd
+from .features import create_features_dict
+from .fetch import fetch_ps1_cutout, fetch_ps1_rgb_jpeg
+import astropy.units as u
+from astropy.coordinates import SkyCoord
+from matplotlib.backends.backend_pdf import PdfPages
+import logging
+import math
+import antares_client
+from pathlib import Path
+import numpy as np
+from astropy.visualization import AsinhStretch, PercentileInterval
+from statsmodels import robust
+
 def plot_lightcurves(
     primer_dict,
     plot_label,
@@ -48,8 +66,9 @@ def plot_lightcurves(
         primer_dict["lc_tns_z"] = primer_dict["lc_tns_z"]
 
     if primer_dict["lc_ztf_id"] is not None:
+        ztf_id = primer_dict["lc_ztf_id"]
         ref_info = antares_client.search.get_by_ztf_object_id(
-            ztf_object_id=primer_dict["lc_ztf_id"]
+            ztf_object_id=ztf_id
         )
         try:
             df_ref = ref_info.timeseries.to_pandas()
@@ -358,7 +377,7 @@ def corner_plot(
 
     logging.getLogger().setLevel(logging.ERROR)
 
-    re_laiss_features_dict = create_re_laiss_features_dict(
+    features_dict = create_features_dict(
         lc_feature_names, host_feature_names
     )
 
@@ -369,7 +388,7 @@ def corner_plot(
     ]
     print("Total number of transients for corner plots:", dataset_bank_df.shape[0])
 
-    for batch_name, features in re_laiss_features_dict.items():
+    for batch_name, features in features_dict.items():
         print(f"Creating corner plot for {batch_name}...")
 
         # REMOVING OUTLIERS #
