@@ -2,7 +2,9 @@
   <img src="https://github.com/evan-reynolds/re-laiss/blob/main/static/reLAISS_logo.png" style="width: 50%;" alt="reLAISS Logo">
 </p>
 
-_A flexible library for similarity searches of supernovae and their host galaxies._
+<p align="center">
+  _A flexible library for similarity searches of supernovae and their host galaxies._
+</p>
 
 reLAISS lets you retrieve nearest‑neighbour supernovae (or spot outliers) by combining ZTF $g/r$ light‑curve morphology with Pan‑STARRS host‑galaxy colours. A pre‑built reference index lets you find similar events to a queried object in seconds, and the modularity of the code allows you to customize it for your own science case.
 
