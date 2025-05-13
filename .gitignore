@@ -3,4 +3,5 @@ data/df_bank.csv
 data/theorized_lc/
 code/__pycache__/
 data/.DS_Store
+src/relaiss/_version.py
 .DS_Store
