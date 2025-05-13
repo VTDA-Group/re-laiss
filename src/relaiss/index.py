@@ -25,7 +25,7 @@ def build_indexed_sample(
     ----------
     dataset_bank_path : str | Path
         CSV produced by ``build_dataset_bank``; first column must be
-        ``ztf_object_id``.
+        ``ZTFID``.
     lc_features, host_features : list[str]
         Feature columns to include in the index.
         Provide one or both lists.
@@ -58,11 +58,11 @@ def build_indexed_sample(
     df_bank = pd.read_csv(dataset_bank_path)
 
     # Confirm that the first column is the ZTF ID, and index by ZTF ID
-    if df_bank.columns[0] != "ztf_object_id":
+    if "ZTFID" not in df_bank.columns.values:
         raise ValueError(
-            f"Error: Expected first column in dataset bank to be 'ztf_object_id', but got '{df_bank.columns[0]}' instead."
+            f"Error: Expected 'ZTFID' column in dataset bank, but got '{df_bank.columns[0]}' instead."
         )
-    df_bank = df_bank.set_index("ztf_object_id")
+    df_bank = df_bank.set_index("ZTFID")
 
     # Ensure proper user input of features
     num_lc_features = len(lc_features)

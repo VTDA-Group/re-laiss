@@ -406,7 +406,7 @@ class ReLAISS:
         # Plot hosts
         print("\nGenerating hosts grid plot...")
 
-        df_bank = pd.read_csv(path_to_dataset_bank, index_col="ztf_object_id")
+        df_bank = pd.read_csv(path_to_dataset_bank, index_col="ZTFID")
 
         hosts_to_plot = neighbor_ztfids.copy()
         host_ra_l, host_dec_l = [], []

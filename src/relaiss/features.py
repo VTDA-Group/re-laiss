@@ -62,7 +62,7 @@ def build_dataset_bank(
     Returns
     -------
     pandas.DataFrame
-        Fully hydrated feature table indexed by ``ztf_object_id``.
+        Fully hydrated feature table indexed by ``ZTFID``.
     """
     raw_lc_features = constants.lc_features_const.copy()
     raw_host_features = constants.raw_host_features_const.copy()
@@ -75,15 +75,15 @@ def build_dataset_bank(
             if col not in raw_host_features:
                 raw_host_features.insert(0, col)
 
-    # if "ztf_object_id" is the index, move it to the first column
-    if raw_df_bank.index.name == "ztf_object_id":
+    # if "ZTFID" is the index, move it to the first column
+    if raw_df_bank.index.name == "ZTFID":
         raw_df_bank = raw_df_bank.reset_index()
 
     if theorized:
         raw_features = raw_lc_features
         raw_feats_no_ztf = raw_lc_features
     else:
-        raw_features = ["ztf_object_id"] + raw_lc_features + raw_host_features
+        raw_features = ["ZTFID"] + raw_lc_features + raw_host_features
         raw_feats_no_ztf = raw_lc_features + raw_host_features
 
     # Check to make sure all required features are in the raw data
@@ -292,7 +292,7 @@ def extract_lc_and_host_features(
         df_ref["ant_passband"] = df_ref["ant_passband"].replace({"G": "g", "r": "R"})
     else:
         try:
-            ref_info = antares_client.search.get_by_ztf_object_id(ztf_object_id=ztf_id)
+            ref_info = antares_client.search.get_by_ZTFID(ZTFID=ztf_id)
             df_ref = ref_info.timeseries.to_pandas()
         except:
             print("antares_client can't find this object. Abort!")
@@ -347,7 +347,7 @@ def extract_lc_and_host_features(
     # Engineer features in time
     lc_col_names = constants.lc_features_const.copy()
     lc_timeseries_feat_df = pd.DataFrame(
-        columns=["ztf_object_id"] + ["obs_num"] + ["mjd_cutoff"] + lc_col_names
+        columns=["ZTFID"] + ["obs_num"] + ["mjd_cutoff"] + lc_col_names
     )
     for i in range(min_obs_count, len(lightcurve) + 1):
 
@@ -388,7 +388,7 @@ def extract_lc_and_host_features(
             engineered_lc_properties_df.insert(0, "obs_num", int(i))
             engineered_lc_properties_df.insert(
                 0,
-                "ztf_object_id",
+                "ZTFID",
                 ztf_id if theorized_lightcurve_df is None else "theorized_lightcurve",
             )
 
@@ -493,12 +493,12 @@ def extract_lc_and_host_features(
             )
             lc_and_hosts_df = pd.concat([lc_timeseries_feat_df, hosts_df], axis=1)
         else:
-            lc_timeseries_feat_df.loc[0, "ztf_object_id"] = (
+            lc_timeseries_feat_df.loc[0, "ZTFID"] = (
                 ztf_id if theorized_lightcurve_df is None else "theorized_lightcurve"
             )
             lc_and_hosts_df = pd.concat([lc_timeseries_feat_df, hosts_df], axis=1)
 
-        lc_and_hosts_df = lc_and_hosts_df.set_index("ztf_object_id")
+        lc_and_hosts_df = lc_and_hosts_df.set_index("ZTFID")
 
         lc_and_hosts_df["raMean"] = hosts.raMean.values[0]
         lc_and_hosts_df["decMean"] = hosts.decMean.values[0]

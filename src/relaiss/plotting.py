@@ -69,8 +69,8 @@ def plot_lightcurves(
 
     if primer_dict["lc_ztf_id"] is not None:
         ztf_id = primer_dict["lc_ztf_id"]
-        ref_info = antares_client.search.get_by_ztf_object_id(
-            ztf_object_id=ztf_id
+        ref_info = antares_client.search.get_by_ZTFID(
+            ZTFID=ztf_id
         )
         try:
             df_ref = ref_info.timeseries.to_pandas()
@@ -386,7 +386,7 @@ def corner_plot(
     neighbor_ztfids = [link.split("/")[-1] for link in neighbors_df["ztf_link"]]
 
     dataset_bank_df = pd.read_csv(path_to_dataset_bank)[
-        ["ztf_object_id"] + lc_feature_names + host_feature_names
+        ["ZTFID"] + lc_feature_names + host_feature_names
     ]
     print("Total number of transients for corner plots:", dataset_bank_df.shape[0])
 
@@ -418,7 +418,7 @@ def corner_plot(
 
             return df_clean
 
-        dataset_bank_df_batch_features = dataset_bank_df[["ztf_object_id"] + features]
+        dataset_bank_df_batch_features = dataset_bank_df[["ZTFID"] + features]
 
         if remove_outliers_bool:
             dataset_bank_df_batch_features = remove_outliers(
@@ -437,7 +437,7 @@ def corner_plot(
                 dataset_bank_df_batch_features.shape[0],
             )
         # REMOVING OUTLIERS #
-        neighbor_mask = dataset_bank_df_batch_features["ztf_object_id"].isin(
+        neighbor_mask = dataset_bank_df_batch_features["ZTFID"].isin(
             neighbor_ztfids
         )
         features_df = dataset_bank_df_batch_features[features]
