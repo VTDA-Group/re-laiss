@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gdown
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
@@ -73,6 +74,14 @@ class ReLAISS:
 
         lc_features = list(lc_features) if lc_features else _c.lc_features_const.copy()
         host_features = list(host_features) if host_features else _c.raw_host_features_const.copy()
+
+
+        if not bank_path.exists():
+            print(f"Reference data not found at {bank_path}; downloading now...")
+            bank_path.parent.mkdir(parents=True, exist_ok=True)
+
+            url = "https://drive.google.com/uc?export=download&id=1uH_03ju50Enb7ZhiduDrmCVTMvTc7bMC"
+            gdown.download(url, str(bank_path), quiet=False)
 
         # build or reuse index
         index_stem = build_indexed_sample(
