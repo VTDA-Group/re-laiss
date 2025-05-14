@@ -42,9 +42,6 @@ class ReLAISS:
         self._index.load(str(self.index_stem) + ".ann")
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
 
-    # ---------------------------------------------------------------------
-    # Public helper constructors
-    # ---------------------------------------------------------------------
     @classmethod
     def load_reference(
         cls,
@@ -86,7 +83,7 @@ class ReLAISS:
  
         print("Engineering host features...")
         raw_df_bank = pd.read_csv(bank_path)
-        hydrated_bank = build_dataset_bank(raw_df_bank)
+        hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True)
         print("Hydrated bank:")
         print(hydrated_bank)
         print("Saving at :", bank_path)
