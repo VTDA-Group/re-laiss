@@ -163,7 +163,7 @@ def build_dataset_bank(
                     band=band,
                     av_in_raw_df_bank=av_in_raw_df_bank,
                     path_to_sfd_folder=path_to_sfd_folder,
-                    m
+                    m=m
                 ),
                 axis=1,
             )
