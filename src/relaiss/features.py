@@ -168,6 +168,7 @@ def build_dataset_bank(
         #        axis=1,
         #    )
 
+        MW_RV = 3.1
         ebv = m.ebv(wip_dataset_bank["ra"].to_numpy(), wip_dataset_bank["dec"].to_numpy())
         AV = MW_RV * ebv
 
