@@ -169,11 +169,11 @@ def build_dataset_bank(
         #    )
 
         MW_RV = 3.1
-        ebv = m.ebv(wip_dataset_bank["ra"].to_numpy(), wip_dataset_bank["dec"].to_numpy())
-        AV = MW_RV * ebv
+        MW_EBV = m.ebv(wip_dataset_bank["ra"].to_numpy(), wip_dataset_bank["dec"].to_numpy())
+        AV = MW_RV * MW_EBV
 
         for band in ["g", "r", "i", "z"]:
-            mags = df[f"{band}KronMag"].to_numpy()
+            mags = wip_dataset_bank[f"{band}KronMag"].to_numpy()
             A_filter = -2.5 * np.log10(
                 ext.extinguish(central_wv[band]*u.AA, Av=AV)
             )
