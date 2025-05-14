@@ -154,6 +154,8 @@ def build_dataset_bank(
         if not building_for_AD:
             print("Engineering remaining features...")
         # Correct host magnitude features for dust
+        m = sfdmap.SFDMap(path_to_sfd_folder)
+
         for band in ["g", "r", "i", "z"]:
             wip_dataset_bank[band + "KronMagCorrected"] = wip_dataset_bank.apply(
                 lambda row: getExtinctionCorrectedMag(
@@ -161,6 +163,7 @@ def build_dataset_bank(
                     band=band,
                     av_in_raw_df_bank=av_in_raw_df_bank,
                     path_to_sfd_folder=path_to_sfd_folder,
+                    m
                 ),
                 axis=1,
             )
@@ -545,6 +548,7 @@ def getExtinctionCorrectedMag(
     band,
     av_in_raw_df_bank,
     path_to_sfd_folder='./',
+    m=None
 ):
     """Milky-Way extinction-corrected Kron magnitude for one passband.
 
@@ -571,8 +575,7 @@ def getExtinctionCorrectedMag(
 
     if av_in_raw_df_bank:
         MW_AV = transient_row["A_V"]
-    else:
-        m = sfdmap.SFDMap(path_to_sfd_folder)
+    elif m is not None:
         MW_EBV = m.ebv(float(transient_row["ra"]), float(transient_row["dec"]))
         MW_AV = MW_RV * MW_EBV
 
