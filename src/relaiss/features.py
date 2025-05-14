@@ -156,17 +156,27 @@ def build_dataset_bank(
         # Correct host magnitude features for dust
         m = sfdmap.SFDMap(path_to_sfd_folder)
 
+        #for band in ["g", "r", "i", "z"]:
+        #    wip_dataset_bank[band + "KronMagCorrected"] = wip_dataset_bank.apply(
+        #        lambda row: getExtinctionCorrectedMag(
+        #            transient_row=row,
+        #            band=band,
+        #            av_in_raw_df_bank=av_in_raw_df_bank,
+        #            path_to_sfd_folder=path_to_sfd_folder,
+        #            m=m
+        #        ),
+        #        axis=1,
+        #    )
+
+        ebv = m.ebv(wip_dataset_bank["ra"].to_numpy(), wip_dataset_bank["dec"].to_numpy())
+        AV = MW_RV * ebv
+
         for band in ["g", "r", "i", "z"]:
-            wip_dataset_bank[band + "KronMagCorrected"] = wip_dataset_bank.apply(
-                lambda row: getExtinctionCorrectedMag(
-                    transient_row=row,
-                    band=band,
-                    av_in_raw_df_bank=av_in_raw_df_bank,
-                    path_to_sfd_folder=path_to_sfd_folder,
-                    m=m
-                ),
-                axis=1,
+            mags = df[f"{band}KronMag"].to_numpy()
+            A_filter = -2.5 * np.log10(
+                ext.extinguish(central_wv[band]*u.AA, Av=AV)
             )
+            df[f"{band}KronMagCorrected"] = mags - A_filter
 
         # Create color features
         wip_dataset_bank["gminusrKronMag"] = (
