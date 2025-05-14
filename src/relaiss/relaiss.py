@@ -6,15 +6,13 @@ from pathlib import Path
 from typing import Optional
 from .index import build_indexed_sample
 from .features import build_dataset_bank
+from .search import primer 
 
 import annoy
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-
-# --------------- helper imports (internal low‑level funcs) ------------------
-from .search import primer
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
 
@@ -35,7 +33,7 @@ class ReLAISS:
         self.lc_features = lc_features
         self.host_features = host_features
 
-        self._index = annoy.AnnoyIndex(  # loaded lazily on first query
+        self._index = annoy.AnnoyIndex(  
             self.pca.n_components_ if self.pca else len(lc_features + host_features),
             metric="manhattan",
         )
@@ -47,6 +45,7 @@ class ReLAISS:
         cls,
         *,
         bank_path: Path | str = REFERENCE_DIR / "reference_20k.csv",
+        path_to_sfd_folder: Path | str = './' ,
         lc_features: Optional[Sequence[str]] = None,
         host_features: Optional[Sequence[str]] = None,
         weight_lc: float = 1.0,
@@ -58,7 +57,9 @@ class ReLAISS:
         Parameters
         ----------
         bank_path : str or Path
-            CSV containing hydrated features.
+            Path to CSV containing raw feature file. 
+        path_to_sfd_folder : str or Path
+            Path to SFD dustmaps for extinction-correction.    
         lc_features, host_features : sequence of str or *None*
             Columns to include; defaults to constants in `constants`.
         weight_lc : float, default 1.0
@@ -73,7 +74,6 @@ class ReLAISS:
         lc_features = list(lc_features) if lc_features else _c.lc_features_const.copy()
         host_features = list(host_features) if host_features else _c.raw_host_features_const.copy()
 
-
         if not bank_path.exists():
             print(f"Reference data not found at {bank_path}; downloading now...")
             bank_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,7 +83,7 @@ class ReLAISS:
  
         print("Engineering host features...")
         raw_df_bank = pd.read_csv(bank_path)
-        hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True)
+        hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True,path_to_sfd_folder=path_to_sfd_folder)
         print("Hydrated bank:")
         print(hydrated_bank)
         print("Saving at :", bank_path)

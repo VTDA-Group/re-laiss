@@ -28,9 +28,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 def build_dataset_bank(
     raw_df_bank,
     av_in_raw_df_bank=False,
-    path_to_sfd_folder=None,
+    path_to_sfd_folder='./',
     theorized=False,
-    path_to_dataset_bank=None,
+    path_to_dataset_bank='./',
     building_entire_df_bank=False,
     building_for_AD=False,
 ):
@@ -544,7 +544,7 @@ def getExtinctionCorrectedMag(
     transient_row,
     band,
     av_in_raw_df_bank,
-    path_to_sfd_folder=None,
+    path_to_sfd_folder='./',
 ):
     """Milky-Way extinction-corrected Kron magnitude for one passband.
 
