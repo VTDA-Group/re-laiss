@@ -5,8 +5,8 @@ import relaiss as rl
 
 def test_find_neighbors_dataframe():
 
-    client = rl.ReLAISS.load_reference()
-    df = client.find_neighbors("ZTF21abbzjeq", k=5, use_host=False)
+    client = rl.ReLAISS.load_reference(path_to_sfd_folder='/Users/alexgagliano/Documents/Research/ZTF_IInPrecursors/scripts/ztf_forced_phot/sfddata-master/')
+    df = client.find_neighbors("ZTF21abbzjeq", n=5)
 
     assert isinstance(df, pd.DataFrame)
     assert list(df.columns) == ["ztfid", "distance"]

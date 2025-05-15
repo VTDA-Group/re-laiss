@@ -1,0 +1,33 @@
+numpy
+matplotlib
+pandas
+scipy
+requests
+matplotlib>=3.5
+astropy>=5.0
+annoy>=1.17
+kneed
+statsmodels
+scikit-learn>=1.3
+gdown
+pyod
+corner
+dust-extinction
+astro-prost
+absl-py<2
+marshmallow<4
+antares-client
+
+[:python_version <= "3.9"]
+sfdmap
+
+[:python_version >= "3.9"]
+sfdmap2
+
+[dev]
+asv==0.6.4
+jupyter
+pre-commit
+pytest
+pytest-cov
+ruff

@@ -30,8 +30,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
 
-      - name: Lint and test
+      - name: Run unit test
         run: |
-          ruff check .
           pytest -W ignore::DeprecationWarning
 

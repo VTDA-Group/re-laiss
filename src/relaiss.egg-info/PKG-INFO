@@ -1,0 +1,127 @@
+Metadata-Version: 2.4
+Name: relaiss
+Version: 0.0.post1.dev40
+Author: Evan Reynolds
+Author-email: Alex Gagliano <gaglian2@mit.edu>, Ashley Villar <ashleyvillar@cfa.harvard.edu>
+License: MIT License
+        
+        Copyright (c) 2025 
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+        
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+        
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+        
+Project-URL: Source Code, https://github.com/evan-reynolds/re-laiss/
+Classifier: Development Status :: 4 - Beta
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: matplotlib
+Requires-Dist: pandas
+Requires-Dist: scipy
+Requires-Dist: requests
+Requires-Dist: sfdmap; python_version <= "3.9"
+Requires-Dist: sfdmap2; python_version >= "3.9"
+Requires-Dist: matplotlib>=3.5
+Requires-Dist: astropy>=5.0
+Requires-Dist: annoy>=1.17
+Requires-Dist: kneed
+Requires-Dist: statsmodels
+Requires-Dist: scikit-learn>=1.3
+Requires-Dist: gdown
+Requires-Dist: pyod
+Requires-Dist: corner
+Requires-Dist: dust-extinction
+Requires-Dist: astro-prost
+Requires-Dist: absl-py<2
+Requires-Dist: marshmallow<4
+Requires-Dist: antares-client
+Provides-Extra: dev
+Requires-Dist: asv==0.6.4; extra == "dev"
+Requires-Dist: jupyter; extra == "dev"
+Requires-Dist: pre-commit; extra == "dev"
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Dynamic: license-file
+
+<p align="center">
+  <img src="https://github.com/evan-reynolds/re-laiss/blob/main/static/reLAISS_logo.png" style="width: 50%;" alt="reLAISS Logo">
+</p>
+
+<p align="center">
+  <em>A flexible library for similarity searches of supernovae and their host galaxies.</em>
+</p>
+
+reLAISS lets you retrieve nearest‑neighbour supernovae (or spot outliers) by combining ZTF $g/r$ light‑curve morphology with Pan‑STARRS host‑galaxy colours. A pre‑built reference index lets you find similar events to a queried object in seconds, and the modularity of the code allows you to customize it for your own science case.
+
+# Install
+
+Installation of the package is easy: In a fresh conda environment, run `pip install relaiss`
+
+
+# Code Demo
+```
+import relaiss as rl
+
+# Load the shipped reference index (~20 000 objects)
+index = rl.load_reference()
+
+# Find the 5 closest matches to a ZTF transient
+neigh = rl.find_neighbors(
+    "ZTF23abcxyz",  # ZTFID
+    k=5,             # number of neighbours
+    use_lightcurve=True,
+    use_host=True,
+    host_weight=0.3, # balance LC vs host similarity
+    return_dataframe=True,
+)
+print(neigh[["ztfid", "distance"]])
+```
+
+# Citation
+
+If reLAISS helps your research, please cite the following two works:
+
+```
+Research note bibtex to be added here!
+
+@ARTICLE{2024ApJ...974..172A,
+       author = {{Aleo}, P.~D. and {Engel}, A.~W. and {Narayan}, G. and {Angus}, C.~R. and {Malanchev}, K. and {Auchettl}, K. and {Baldassare}, V.~F. and {Berres}, A. and {de Boer}, T.~J.~L. and {Boyd}, B.~M. and {Chambers}, K.~C. and {Davis}, K.~W. and {Esquivel}, N. and {Farias}, D. and {Foley}, R.~J. and {Gagliano}, A. and {Gall}, C. and {Gao}, H. and {Gomez}, S. and {Grayling}, M. and {Jones}, D.~O. and {Lin}, C. -C. and {Magnier}, E.~A. and {Mandel}, K.~S. and {Matheson}, T. and {Raimundo}, S.~I. and {Shah}, V.~G. and {Soraisam}, M.~D. and {de Soto}, K.~M. and {Vicencio}, S. and {Villar}, V.~A. and {Wainscoat}, R.~J.},
+        title = "{Anomaly Detection and Approximate Similarity Searches of Transients in Real-time Data Streams}",
+      journal = {\apj},
+     keywords = {Supernovae, Transient detection, Astronomical methods, Time domain astronomy, Time series analysis, Astrostatistics techniques, Classification, Light curves, Random Forests, 1668, 1957, 1043, 2109, 1916, 1886, 1907, 918, 1935, Astrophysics - High Energy Astrophysical Phenomena, Astrophysics - Instrumentation and Methods for Astrophysics},
+         year = 2024,
+        month = oct,
+       volume = {974},
+       number = {2},
+          eid = {172},
+        pages = {172},
+          doi = {10.3847/1538-4357/ad6869},
+archivePrefix = {arXiv},
+       eprint = {2404.01235},
+ primaryClass = {astro-ph.HE},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2024ApJ...974..172A},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+}
+```

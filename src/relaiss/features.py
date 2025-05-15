@@ -169,6 +169,7 @@ def build_dataset_bank(
         #    )
 
         MW_RV = 3.1
+        ext = G23(Rv=MW_RV)
         MW_EBV = m.ebv(wip_dataset_bank["ra"].to_numpy(), wip_dataset_bank["dec"].to_numpy())
         AV = MW_RV * MW_EBV
 
