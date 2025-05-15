@@ -180,7 +180,7 @@ def build_dataset_bank(
             A_filter = -2.5 * np.log10(
                 ext.extinguish(central_wv[band]*u.AA, Av=AV)
             )
-            df[f"{band}KronMagCorrected"] = mags - A_filter
+            wip_dataset_bank[f"{band}KronMagCorrected"] = mags - A_filter
 
         # Create color features
         wip_dataset_bank["gminusrKronMag"] = (
