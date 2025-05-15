@@ -25,6 +25,8 @@ from .utils import suppress_output
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
+central_wv = {"g": 4849.11, "r": 6201.20, "i": 7534.96, "z": 8674.20}
+
 def build_dataset_bank(
     raw_df_bank,
     av_in_raw_df_bank=False,
@@ -581,7 +583,7 @@ def getExtinctionCorrectedMag(
     float
         Extinction-corrected Kron magnitude.
     """
-    central_wv_filters = {"g": 4849.11, "r": 6201.20, "i": 7534.96, "z": 8674.20}
+    central_wv = {"g": 4849.11, "r": 6201.20, "i": 7534.96, "z": 8674.20}
     MW_RV = 3.1
     ext = G23(Rv=MW_RV)
 
@@ -591,7 +593,7 @@ def getExtinctionCorrectedMag(
         MW_EBV = m.ebv(float(transient_row["ra"]), float(transient_row["dec"]))
         MW_AV = MW_RV * MW_EBV
 
-    wv_filter = central_wv_filters[band]
+    wv_filter = central_wv[band]
     A_filter = -2.5 * np.log10(ext.extinguish(wv_filter * u.AA, Av=MW_AV))
 
     return transient_row[band + "KronMag"] - A_filter
