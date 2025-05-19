@@ -385,7 +385,10 @@ def corner_plot(
 
     neighbor_ztfids = [link.split("/")[-1] for link in neighbors_df["ztf_link"]]
 
-    dataset_bank_df = pd.read_csv(path_to_dataset_bank)[
+    dataset_bank_df = pd.read_csv(path_to_dataset_bank)
+    if 'ZTFID' in dataset_bank_df.columns:
+        dataset_bank_df = dataset_bank_df.rename(columns={'ZTFID': 'ztf_object_id'})
+    dataset_bank_df = dataset_bank_df[
         ["ztf_object_id"] + lc_feature_names + host_feature_names
     ]
     print("Total number of transients for corner plots:", dataset_bank_df.shape[0])

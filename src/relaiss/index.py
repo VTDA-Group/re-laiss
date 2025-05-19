@@ -58,9 +58,12 @@ def build_indexed_sample(
 
     # Confirm that the first column is the ZTF ID, and index by ZTF ID
     if "ztf_object_id" not in data_bank.columns.values:
-        raise ValueError(
-            f"Error: Expected 'ztf_object_id' column in dataset bank, but got '{data_bank.columns[0]}' instead."
-        )
+        if "ZTFID" in data_bank.columns.values:
+            data_bank = data_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+        else:
+            raise ValueError(
+                f"Error: Expected 'ztf_object_id' or 'ZTFID' column in dataset bank, but got '{data_bank.columns[0]}' instead."
+            )
     data_bank = data_bank.set_index("ztf_object_id")
 
     print("INDEXING on features:", lc_features + host_features)

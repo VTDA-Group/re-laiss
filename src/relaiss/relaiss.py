@@ -85,6 +85,10 @@ class ReLAISS:
         preprocessed_bank_path = bank_path.parent / f"preprocessed_{bank_path.name}"
         print(f"Preprocessing data and saving to {preprocessed_bank_path}")
         
+        # Rename ZTFID to ztf_object_id if it exists
+        if 'ZTFID' in raw_df_bank.columns:
+            raw_df_bank = raw_df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+        
         #hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True,path_to_sfd_folder=path_to_sfd_folder)
         hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True,path_to_sfd_folder=path_to_sfd_folder)
         hydrated_bank.to_csv(preprocessed_bank_path, index=False)

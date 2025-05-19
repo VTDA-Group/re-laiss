@@ -39,7 +39,7 @@ def primer(
     theorized_lightcurve_df : pandas.DataFrame | None
         Pre-computed ANTARES-style LC for a theoretical model.
     host_ztf_id : str | None
-        If given, replace the query object’s host features with those of this
+        If given, replace the query object's host features with those of this
         transient.
     dataset_bank_path, path_to_timeseries_folder, path_to_sfd_folder : str | Path
         Locations for cached data.
@@ -95,7 +95,10 @@ def primer(
 
         # Check if ztf_id is in dataset bank
         try:
-            df_bank = (pd.read_csv(dataset_bank_path).set_index("ztf_object_id", drop=True))
+            df_bank = pd.read_csv(dataset_bank_path)
+            if 'ZTFID' in df_bank.columns:
+                df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+            df_bank = df_bank.set_index("ztf_object_id", drop=True)
 
             # Check to make sure all features are in the dataset bank
             missing_cols = [col for col in feature_names if col not in df_bank.columns]
