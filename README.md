@@ -17,18 +17,22 @@ Installation of the package is easy: In a fresh conda environment, run `pip inst
 ```
 import relaiss as rl
 
-# Load the shipped reference index (~20 000 objects)
-index = rl.load_reference()
+client = rl.ReLAISS()
+
+# load reference data
+client.load_reference(
+    path_to_sfd_folder='./sfddata-master',  # Directory for SFD dust maps
+)
 
 # Find the 5 closest matches to a ZTF transient
-neigh = rl.find_neighbors(
-    "ZTF23abcxyz",  # ZTFID
-    k=5,             # number of neighbours
-    use_lightcurve=True,
-    use_host=True,
-    host_weight=0.3, # balance LC vs host similarity
-    return_dataframe=True,
-)
+neigh = client.find_neighbors(
+        ztf_object_id='ZTF21abbzjeq',  # Using the test transient
+        n=40,  # number of neighbors to retrieve
+        plot=True, # plot and save figures
+        save_figures=True,
+        path_to_figure_directory='./figures'
+    )
+
 print(neigh[["ztfid", "distance"]])
 ```
 
