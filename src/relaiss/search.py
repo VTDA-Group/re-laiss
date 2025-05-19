@@ -19,12 +19,12 @@ def primer(
     theorized_lightcurve_df,
     dataset_bank_path,
     path_to_timeseries_folder,
-    path_to_sfd_data_folder,
+    path_to_sfd_folder,
     save_timeseries=False,
     host_ztf_id=None,
     lc_features=[],
     host_features=[],
-    num_sims=10,
+    num_sims=0,
 ):
     """Assemble input feature vectors (and MC replicas) for a query object.
 
@@ -41,7 +41,7 @@ def primer(
     host_ztf_id : str | None
         If given, replace the query object’s host features with those of this
         transient.
-    dataset_bank_path, path_to_timeseries_folder, path_to_sfd_data_folder : str | Path
+    dataset_bank_path, path_to_timeseries_folder, path_to_sfd_folder : str | Path
         Locations for cached data.
     lc_features, host_features : list[str]
         Names of columns to extract.
@@ -95,7 +95,7 @@ def primer(
 
         # Check if ztf_id is in dataset bank
         try:
-            df_bank = (pd.read_csv(dataset_bank_path).set_index("ZTFID", drop=True))
+            df_bank = (pd.read_csv(dataset_bank_path).set_index("ztf_object_id", drop=True))
 
             # Check to make sure all features are in the dataset bank
             missing_cols = [col for col in feature_names if col not in df_bank.columns]
@@ -122,7 +122,7 @@ def primer(
                     ztf_id=ztf_id,
                     theorized_lightcurve_df=None,
                     path_to_timeseries_folder=path_to_timeseries_folder,
-                    path_to_sfd_data_folder=path_to_sfd_data_folder,
+                    path_to_sfd_folder=path_to_sfd_folder,
                     path_to_dataset_bank=dataset_bank_path,
                     save_timeseries=save_timeseries,
                     swapped_host=host_loop,
@@ -139,7 +139,7 @@ def primer(
                     theorized_lightcurve_df if not host_loop else None
                 ),
                 path_to_timeseries_folder=path_to_timeseries_folder,
-                path_to_sfd_data_folder=path_to_sfd_data_folder,
+                path_to_sfd_folder=path_to_sfd_folder,
                 path_to_dataset_bank=dataset_bank_path,
                 save_timeseries=save_timeseries,
                 swapped_host=host_loop,
@@ -155,11 +155,11 @@ def primer(
 
             # If timeseries_df is from theorized lightcurve, it only has lightcurve features
             if not host_loop and theorized_lightcurve_df is not None:
-                subset_feats_for_checking_na = lc_features
+                all_feats = lc_features
             else:
-                subset_feats_for_checking_na = lc_features + host_features
+                all_feats = lc_features + host_features
 
-            timeseries_df = timeseries_df.dropna(subset=subset_feats_for_checking_na)
+            timeseries_df = timeseries_df.dropna(subset=all_feats)
             if timeseries_df.empty:
                 raise ValueError(f"{ztf_id} has some NaN features. Abort!")
 
@@ -169,8 +169,8 @@ def primer(
                 for host_feature in host_features:
                     timeseries_df[host_feature] = np.nan
 
-            locus_feat_arr_df = pd.DataFrame(timeseries_df.iloc[-1]).T
-            locus_feat_arr = locus_feat_arr_df.iloc[0]
+            locus_feat_arr_df = pd.DataFrame(timeseries_df[all_feats].iloc[-1]).T
+            locus_feat_arr = locus_feat_arr_df[all_feats].iloc[0]
 
         # Pull TNS data for ztf_id
         if ztf_id is not None:
@@ -194,15 +194,15 @@ def primer(
 
     if host_ztf_id is None:
         # Not swapping out host, use features from lightcurve ztf_id
-        locus_feat_df = lc_locus_feat_arr[feature_names + feature_err_names]
+        locus_feat_series = lc_locus_feat_arr[feature_names]
     else:
         # Create new feature array with mixed lc and host features
-        subset_lc_features = lc_locus_feat_arr[lc_features + lc_feature_err_names]
-        subset_host_features = host_locus_feat_arr[
-            host_features + host_feature_err_names
-        ]
+        subset_lc = lc_locus_feat_arr[lc_features]
+        subset_host = host_locus_feat_arr[host_features]
+        locus_feat_series = pd.concat([subset_lc, subset_host], axis=0)
 
-        locus_feat_df = pd.concat([subset_lc_features, subset_host_features], axis=0)
+    # Ensure clean 1-row DataFrame in correct order
+    locus_feat_df = pd.DataFrame([locus_feat_series[feature_names]])
 
     # Create Monte Carlo copies locus_feat_arrays_l
     np.random.seed(888)
@@ -224,8 +224,10 @@ def primer(
 
         locus_feat_arrs_mc_l.append(locus_feat_df_for_mc[feature_names].values)
 
-    # Create true feature array
+    locus_feat_df.drop_duplicates(inplace=True)
+
     locus_feat_arr = locus_feat_df[feature_names].values
+    locus_feat_arr = locus_feat_arr.flatten()
 
     output_dict = {
         # host data is optional, it's only if the user decides to swap in a new host
@@ -252,4 +254,3 @@ def primer(
     }
 
     return output_dict
-

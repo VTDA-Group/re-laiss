@@ -141,7 +141,7 @@ def fetch_ps1_rgb_jpeg(ra_deg, dec_deg, *, size_pix=100):
 def get_timeseries_df(
     ztf_id,
     path_to_timeseries_folder,
-    path_to_sfd_data_folder,
+    path_to_sfd_folder,
     theorized_lightcurve_df=None,
     save_timeseries=False,
     path_to_dataset_bank=None,
@@ -157,7 +157,7 @@ def get_timeseries_df(
     ----------
     ztf_id : str
     path_to_timeseries_folder : str | Path
-    path_to_sfd_data_folder : str | Path
+    path_to_sfd_folder : str | Path
     theorized_lightcurve_df : pandas.DataFrame | None
         If provided, builds features for a simulated LC.
     save_timeseries : bool, default False
@@ -178,7 +178,7 @@ def get_timeseries_df(
             ztf_id=ztf_id,
             theorized_lightcurve_df=theorized_lightcurve_df,
             path_to_timeseries_folder=path_to_timeseries_folder,
-            path_to_sfd_data_folder=path_to_sfd_data_folder,
+            path_to_sfd_folder=path_to_sfd_folder,
             path_to_dataset_bank=path_to_dataset_bank,
             show_lc=False,
             show_host=True,
@@ -206,7 +206,7 @@ def get_timeseries_df(
             ztf_id=ztf_id,
             theorized_lightcurve_df=theorized_lightcurve_df,
             path_to_timeseries_folder=path_to_timeseries_folder,
-            path_to_sfd_data_folder=path_to_sfd_data_folder,
+            path_to_sfd_folder=path_to_sfd_folder,
             path_to_dataset_bank=path_to_dataset_bank,
             show_lc=False,
             show_host=True,

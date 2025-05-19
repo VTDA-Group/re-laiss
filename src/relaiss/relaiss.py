@@ -3,46 +3,45 @@ from __future__ import annotations
 import gdown
 from collections.abc import Sequence
 from pathlib import Path
+import time
 from typing import Optional
 from .index import build_indexed_sample
 from .features import build_dataset_bank
-from .search import primer 
-
+from .search import primer
+from .fetch import get_TNS_data
+from .plotting import plot_lightcurves, plot_hosts
+import os
+from kneed import KneeLocator
 import annoy
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn import preprocessing
+import antares_client
+import matplotlib.pyplot as plt
+import joblib
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
 
 class ReLAISS:
     def __init__(
-        self,
-        bank_csv: Path | str,
-        index_stem: Path | str,
-        scaler: StandardScaler,
-        pca: Optional[PCA],
-        lc_features: list[str],
-        host_features: list[str],
-    ) -> None:
-        self.bank_csv = Path(bank_csv)
-        self.index_stem = Path(index_stem)
-        self.scaler = scaler
-        self.pca = pca
-        self.lc_features = lc_features
-        self.host_features = host_features
+        self) -> None:
 
-        self._index = annoy.AnnoyIndex(  
-            self.pca.n_components_ if self.pca else len(lc_features + host_features),
-            metric="manhattan",
-        )
-        self._index.load(str(self.index_stem) + ".ann")
-        self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
+        self.bank_csv: Path
+        self.index_stem: Path
+        self.scaler: StandardScaler
+        self.pca: Optional[PCA]
+        self.lc_features: list[str]
+        self.host_features: list[str]
+        self.feat_arr_scaled: np.ndarray
+        self.path_to_sfd_folder: Path
+        self._index: annoy.AnnoyIndex
+        self._ids: np.ndarray
+        self.use_pca: bool
 
-    @classmethod
     def load_reference(
-        cls,
+        self,
         *,
         bank_path: Path | str = REFERENCE_DIR / "reference_20k.csv",
         path_to_sfd_folder: Path | str = './' ,
@@ -50,29 +49,29 @@ class ReLAISS:
         host_features: Optional[Sequence[str]] = None,
         weight_lc: float = 1.0,
         use_pca: bool = False,
-        n_components: Optional[int] = None,
-    ) -> ReLAISS:
+        num_pca_components: Optional[int] = None,
+    ) -> None:
         """Load the shipped 20‑k reference bank and build (or load) its ANNOY index.
 
         Parameters
         ----------
         bank_path : str or Path
-            Path to CSV containing raw feature file. 
+            Path to CSV containing raw feature file.
         path_to_sfd_folder : str or Path
-            Path to SFD dustmaps for extinction-correction.    
+            Path to SFD dustmaps for extinction-correction.
         lc_features, host_features : sequence of str or *None*
             Columns to include; defaults to constants in `constants`.
         weight_lc : float, default 1.0
             Up‑weight factor for LC features (ignored when *use_pca* is True).
         use_pca : bool, default False
             Project to PCA space before indexing.
-        n_components : int | None
-            PCA dimensionality; *None* keeps 99 % variance.
+        num_pca_components : int | None
+            PCA dimensionality; *None* keeps 99 % variance.
         """
         from . import constants as _c
 
-        lc_features = list(lc_features) if lc_features else _c.lc_features_const.copy()
-        host_features = list(host_features) if host_features else _c.raw_host_features_const.copy()
+        lc_features = list(lc_features) if lc_features is not None else _c.lc_features_const.copy()
+        host_features = list(host_features) if host_features is not None else _c.raw_host_features_const.copy()
 
         if not bank_path.exists():
             print(f"Reference data not found at {bank_path}; downloading now...")
@@ -80,53 +79,86 @@ class ReLAISS:
 
             url = "https://drive.google.com/uc?export=download&id=1uH_03ju50Enb7ZhiduDrmCVTMvTc7bMC"
             gdown.download(url, str(bank_path), quiet=False)
- 
-        print("Engineering host features...")
-        raw_df_bank = pd.read_csv(bank_path)
-        hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True,path_to_sfd_folder=path_to_sfd_folder)
-        print("Hydrated bank:")
-        print(hydrated_bank)
-        print("Saving at :", bank_path)
-        hydrated_bank.to_csv(bank_path)
 
-        # build or reuse index
-        index_stem = build_indexed_sample(
-            dataset_bank_path=bank_path,
+        raw_df_bank = pd.read_csv(bank_path)
+        # Create a new path for the preprocessed data
+        preprocessed_bank_path = bank_path.parent / f"preprocessed_{bank_path.name}"
+        print(f"Preprocessing data and saving to {preprocessed_bank_path}")
+        
+        #hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True,path_to_sfd_folder=path_to_sfd_folder)
+        hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True,path_to_sfd_folder=path_to_sfd_folder)
+        hydrated_bank.to_csv(preprocessed_bank_path, index=False)
+
+        index_stem, scaler, feat_arr_scaled = build_indexed_sample(
+            data_bank=hydrated_bank,
             lc_features=lc_features,
             host_features=host_features,
             use_pca=use_pca,
-            n_components=n_components,
+            num_pca_components=num_pca_components,
             num_trees=1000,
             path_to_index_directory=str(REFERENCE_DIR),
-            save=True,
-            force_recreation_of_index=False,
             weight_lc_feats_factor=weight_lc,
+            force_recreation_of_index=True
         )
 
-        # for transform during queries
-        scaler = StandardScaler().fit(pd.read_csv(bank_path)[lc_features + host_features])
         pca = None
         if use_pca:
-            pca = PCA(n_components=n_components or 0.99, svd_solver="full").fit(
-                scaler.transform(pd.read_csv(bank_path)[lc_features + host_features])
+            print("Using pca...")
+            pca = PCA(num_pca_components=num_pca_components).fit(
+                scaler.fit_transform(hydrated_bank[lc_features + host_features])
             )
-        return cls(bank_path, index_stem, scaler, pca, lc_features, host_features)
+
+        self.index_stem = Path(index_stem)
+        # Load the saved scaler first
+        scaler_path = str(index_stem) + "_scaler.joblib"
+        if os.path.exists(scaler_path):
+            print(f"Loading saved scaler from {scaler_path}")
+            self.scaler = joblib.load(scaler_path)
+        else:
+            print(f"Warning: No saved scaler found at {scaler_path}, using scaler from build_indexed_sample")
+            self.scaler = scaler
+            
+        self.pca = pca
+        self.use_pca = bool(pca)
+        self.lc_features = lc_features
+        self.path_to_sfd_folder = path_to_sfd_folder
+        self.host_features = host_features
+        self.feat_arr_scaled = feat_arr_scaled
+        self.bank_csv = bank_path
+
+        dim = pca.n_components_ if pca else len(lc_features + host_features)
+        print(f"\nInitializing ANNOY index with dimension {dim}")
+        # Use Manhattan distance to match reference implementation
+        self._index = annoy.AnnoyIndex(dim, metric="manhattan")
+        print(f"Loading index from {str(self.index_stem)}.ann")
+        self._index.load(str(self.index_stem) + ".ann")
+        print(f"Loaded index with {self._index.get_n_items()} items")
+        self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
+        print(f"Loaded {len(self._ids)} IDs")
+        
+        # Load the saved PCA model if using PCA
+        if self.use_pca:
+            pca_path = str(self.index_stem) + "_pca.joblib"
+            if os.path.exists(pca_path):
+                print(f"Loading saved PCA model from {pca_path}")
+                self.pca = joblib.load(pca_path)
+            else:
+                print(f"Warning: No saved PCA model found at {pca_path}")
 
     def find_neighbors(
         self,
-        ZTFID,
+        ztf_object_id,
         theorized_lightcurve_df=None,
-        path_to_dataset_bank=None,
+        path_to_dataset_bank: str | Path | None = None,
         use_pca=False,
-        num_pca_components=15,
+        num_pca_components=20,
         n=8,
         suggest_neighbor_num=False,
         max_neighbor_dist=None,
         search_k=1000,
-        use_lightcurve=True,
-        use_host=False,
-        weight_lc_feats_factor=1,
-        save_figures=True,
+        weight_lc_feats_factor=1.0,
+        plot=False,
+        save_figures=False,
         path_to_figure_directory="../figures",
     ):
         """Query the ANNOY index and plot nearest-neighbor diagnostics.
@@ -146,7 +178,7 @@ class ReLAISS:
             ANNOY *search_k* parameter.
         weight_lc_feats_factor : float, default 1
             Same interpretation as in ``build_indexed_sample``.
-        save_figures : bool, default True
+        save_figures : bool, default False
             Write LC + host plots and distance-elbow PNGs.
         path_to_figure_directory : str | Path
 
@@ -155,26 +187,34 @@ class ReLAISS:
         pandas.DataFrame | None
             Table summarising neighbours (or *None* if *suggest_neighbor_num=True*).
         """
+        start_time = time.time()
+
+        print("QUERYING on features:", self.lc_features + self.host_features)
+
         annoy_index_file_stem = self.index_stem
+        dataset_bank = Path(path_to_dataset_bank or self.bank_csv)
 
         primer_dict = primer(
-            lc_ztf_id=ZTFID,
+            lc_ztf_id=ztf_object_id,
             theorized_lightcurve_df=None,
             host_ztf_id=None,
-            dataset_bank_path=self.bank_csv,
-            path_to_timeseries_folder=str(self.bank_csv.parent / "timeseries"),
-            path_to_sfd_data_folder=str(self.bank_csv.parent / "sfddata"),
-            lc_features=self.lc_features if use_lightcurve else [],
-            host_features=self.host_features if use_host else [],
+            dataset_bank_path=dataset_bank,
+            path_to_timeseries_folder='./',
+            path_to_sfd_folder=self.path_to_sfd_folder,
+            lc_features=self.lc_features,
+            host_features=self.host_features,
             num_sims=0,
             save_timeseries=False,
         )
 
         start_time = time.time()
-        index_file = annoy_index_file_stem + ".ann"
+        index_file = str(annoy_index_file_stem) + ".ann"
 
         if n is None or n <= 0:
             raise ValueError("Neighbor number must be a nonzero integer. Abort!")
+        else:
+            print(f"Requesting {n} neighbors from Annoy")
+        print(f"Annoy index contains {self._index.get_n_items()} items")
 
         plot_label = (
             f"{primer_dict['lc_ztf_id'] if primer_dict['lc_ztf_id'] is not None else 'theorized_lc'}"
@@ -186,7 +226,6 @@ class ReLAISS:
         )
 
         # Find neighbors for every Monte Carlo feature array
-        scaler = preprocessing.StandardScaler()
         if use_pca:
             print(
                 f"Loading previously saved ANNOY PCA={num_pca_components} index:",
@@ -196,100 +235,104 @@ class ReLAISS:
         else:
             print("Loading previously saved ANNOY index without PCA:", index_file, "\n")
 
+        # Scale the feature array
         bank_feat_arr = np.load(
-            annoy_index_file_stem + "_feat_arr.npy",
+            str(self.index_stem) + "_feat_arr.npy",
             allow_pickle=True,
         )
-        trained_PCA_feat_arr_scaled = scaler.fit_transform(bank_feat_arr)
-
-        true_and_mc_feat_arrs_l = [primer_dict["locus_feat_arr"]] + primer_dict[
-            "locus_feat_arrs_mc_l"
-        ]
-
+        # Use the saved scaler instead of creating a new one
+        bank_feat_arr_scaled = self.scaler.transform(bank_feat_arr)
+        
+        # Process all feature arrays (true + MC)
+        true_and_mc_feat_arrs_l = [primer_dict["locus_feat_arr"]] + primer_dict["locus_feat_arrs_mc_l"]
         neighbor_dist_dict = {}
-        if len(primer_dict["locus_feat_arrs_mc_l"]) != 0:
-            print("Running Monte Carlo simulation to find possible neighbors...")
+        
         for locus_feat_arr in true_and_mc_feat_arrs_l:
-            # Scale locus_feat_arr using the same scaler (fit on dataset bank feature array)
-            locus_feat_arr_scaled = scaler.transform([locus_feat_arr])
-
-            if not use_pca:
-                # Upweight lightcurve features
-                num_lc_feats = len(constants.lc_features_const.copy())
-                locus_feat_arr_scaled[:, :num_lc_feats] *= weight_lc_feats_factor
-
-            if use_pca:
+            scaled = self.scaler.transform([locus_feat_arr])[0]
+            print("\nQuery vector before weighting:")
+            print(f"Shape: {scaled.shape}")
+            print(f"Values: {scaled}")
+            
+            if not self.use_pca:
+                # Upweight lightcurve features before PCA
+                n_lc = len(self.lc_features)
+                scaled = scaled.reshape(1, -1)  # Make it 2D
+                scaled[:, :n_lc] *= weight_lc_feats_factor
+                scaled = scaled[0]  # Back to 1D
+                print("\nQuery vector after weighting:")
+                print(f"Shape: {scaled.shape}")
+                print(f"Values: {scaled}")
+            
+            if self.use_pca:
                 # Transform the scaled locus_feat_arr using the same PCA model
                 random_seed = 88
-                pca = PCA(n_components=num_pca_components, random_state=random_seed)
-
+                pca = PCA(n_components=self.pca.n_components_, random_state=random_seed)
+                
                 # pca needs to be fit first to the same data as trained
-                _ = pca.fit(
-                    trained_PCA_feat_arr_scaled
-                )
-                locus_feat_arr_pca = pca.transform(locus_feat_arr_scaled)
-
-                index_dim = num_pca_components
-                query_vector = locus_feat_arr_pca[0]
-
-            else:
-                index_dim = len(locus_feat_arr)
-                query_vector = locus_feat_arr_scaled[0]
-
-            # 3. Use the ANNOY index to find nearest neighbors (common to both branches)
-            index = annoy.AnnoyIndex(index_dim, metric="manhattan")
-            index.load(index_file)
-            idx_arr = np.load(f"{annoy_index_file_stem}_idx_arr.npy", allow_pickle=True)
-
-            ann_start_time = time.time()
-            ann_indexes, ann_dists = index.get_nns_by_vector(
-                query_vector, n=n, search_k=search_k, include_distances=True
+                trained_PCA_feat_arr_scaled_pca = pca.fit_transform(bank_feat_arr_scaled)
+                scaled = pca.transform([scaled])[0]
+                print("\nQuery vector after PCA:")
+                print(f"Shape: {scaled.shape}")
+                print(f"Values: {scaled}")
+            
+            print("\nANNOY index details:")
+            print(f"Dimension: {len(scaled)}")
+            print(f"Number of items: {self._index.get_n_items()}")
+            print(f"Number of trees: {self._index.get_n_trees()}")
+            
+            # Get neighbors for this feature array
+            idxs, dists = self._index.get_nns_by_vector(
+                scaled, n=n+1, search_k=search_k, include_distances=True
             )
-
             # Store neighbors and distances in dictionary
-            for ann_index, ann_dist in zip(ann_indexes, ann_dists):
-                if ann_index in neighbor_dist_dict:
-                    neighbor_dist_dict[ann_index].append(ann_dist)
+            for idx, dist in zip(idxs, dists):
+                if idx in neighbor_dist_dict:
+                    neighbor_dist_dict[idx].append(dist)
                 else:
-                    neighbor_dist_dict[ann_index] = [ann_dist]
-
+                    neighbor_dist_dict[idx] = [dist]
+        
         # Pick n neighbors with lowest median distance
         if len(primer_dict["locus_feat_arrs_mc_l"]) != 0:
-            print(
-                f"Number of unique neighbors found through Monte Carlo: {len(neighbor_dist_dict)}.\nPicking top {n} neighbors."
-            )
-
+            print(f"\nNumber of unique neighbors found through Monte Carlo: {len(neighbor_dist_dict)}.")
+            print(f"Picking top {n} neighbors.")
         medians = {idx: np.median(dists) for idx, dists in neighbor_dist_dict.items()}
         sorted_neighbors = sorted(medians.items(), key=lambda item: item[1])
-        top_n_neighbors = sorted_neighbors[:n]
-
-        ann_indexes = [idx for idx, _ in top_n_neighbors]
-        ann_dists = [dist for _, dist in top_n_neighbors]
-
-        for i in ann_indexes:
-            if idx_arr[i] == primer_dict["lc_ztf_id"]:
-                # drop input transient from ann_indexes and ann_dists
-                idx_to_del = ann_indexes.index(i)
-                del ann_indexes[idx_to_del]
-                del ann_dists[idx_to_del]
-                print(
-                    "First neighbor is input transient, so it will be excluded. Final neighbor count will be one less than expected."
-                )
+        top_n_neighbors = sorted_neighbors[:n+1]
+        idxs = [idx for idx, _ in top_n_neighbors]
+        dists = [dist for _, dist in top_n_neighbors]
+        print(f"ANNOY returned {len(idxs)} neighbors")
+        print(f"Indices: {idxs}")
+        print(f"Distances: {dists}")
+        # Remove input transient if it's in the results
+        input_idx = None
+        for i, idx in enumerate(idxs):
+            if self._ids[idx] == primer_dict["lc_ztf_id"]:
+                input_idx = i
                 break
-
-        ann_alerce_links = [
-            f"https://alerce.online/object/{idx_arr[i]}" for i in ann_indexes
-        ]
+        if input_idx is not None:
+            print(f"\nFound input transient at index {input_idx}, removing it...")
+            del idxs[input_idx]
+            del dists[input_idx]
+            print("First neighbor is input transient, so it will be excluded. Final neighbor count will be one less than expected.")
+        # Always return n neighbors
+        idxs = idxs[:n]
+        dists = dists[:n]
+        print(f"\nFinal number of neighbors: {len(idxs)}")
+        print(f"Final distances: {dists}")
         ann_end_time = time.time()
+        ann_elapsed_time = ann_end_time - start_time
+        elapsed_time = time.time() - start_time
+        print(f"\nANN elapsed_time: {round(ann_elapsed_time, 3)} s")
+        print(f"total elapsed_time: {round(elapsed_time, 3)} s\n")
 
         # Find optimal number of neighbors
         if suggest_neighbor_num:
-            number_of_neighbors_found = len(ann_dists)
+            number_of_neighbors_found = len(dists)
             neighbor_numbers_for_plot = list(range(1, number_of_neighbors_found + 1))
 
             knee = KneeLocator(
                 neighbor_numbers_for_plot,
-                ann_dists,
+                dists,
                 curve="concave",
                 direction="increasing",
             )
@@ -304,42 +347,43 @@ class ReLAISS:
                     f"Suggested number of neighbors is {optimal_n}, chosen by comparing {n} neighbors."
                 )
 
-            plt.figure(figsize=(10, 4))
-            plt.plot(
-                neighbor_numbers_for_plot,
-                ann_dists,
-                marker="o",
-                label="Distances",
-            )
-            if optimal_n:
-                plt.axvline(
-                    optimal_n,
-                    color="red",
-                    linestyle="--",
-                    label=f"Elbow at {optimal_n}",
+            if plot:
+                plt.figure(figsize=(10, 4))
+                plt.plot(
+                    neighbor_numbers_for_plot,
+                    dists,
+                    marker="o",
+                    label="Distances",
                 )
-            plt.xlabel("Neighbor Number")
-            plt.ylabel("Distance")
-            plt.title("Distance for Closest Neighbors")
-            plt.grid(True)
-            plt.legend()
-            plt.tight_layout()
+                if optimal_n:
+                    plt.axvline(
+                        optimal_n,
+                        color="red",
+                        linestyle="--",
+                        label=f"Elbow at {optimal_n}",
+                    )
+                plt.xlabel("Neighbor Number")
+                plt.ylabel("Distance")
+                plt.title("Distance for Closest Neighbors")
+                plt.grid(True)
+                plt.legend()
+                plt.tight_layout()
 
-            if save_figures:
-                os.makedirs(path_to_figure_directory, exist_ok=True)
-                os.makedirs(
-                    path_to_figure_directory + "/neighbor_dist_plots/", exist_ok=True
+                if save_figures:
+                    os.makedirs(path_to_figure_directory, exist_ok=True)
+                    os.makedirs(
+                        path_to_figure_directory + "/neighbor_dist_plots/", exist_ok=True
+                    )
+                    plt.savefig(
+                        path_to_figure_directory
+                        + f"/neighbor_dist_plots/{plot_label}_n={n}.png",
+                        dpi=300,
+                        bbox_inches="tight",
+                    )
+                    print(
+                        f"Saved neighbor distances plot to {path_to_figure_directory}/neighbor_dist_plots/n={n}"
                 )
-                plt.savefig(
-                    path_to_figure_directory
-                    + f"/neighbor_dist_plots/{plot_label}_n={n}.png",
-                    dpi=300,
-                    bbox_inches="tight",
-                )
-                print(
-                    f"Saved neighbor distances plot to {path_to_figure_directory}/neighbor_dist_plots/n={n}"
-                )
-            plt.show()
+                plt.show()
 
             print(
                 "Stopping nearest neighbor search after suggesting neighbor number. Set run_NN=True and suggest_neighbor_num=False for full search.\n"
@@ -350,34 +394,34 @@ class ReLAISS:
         if max_neighbor_dist is not None:
             filtered_neighbors = [
                 (idx, dist)
-                for idx, dist in zip(ann_indexes, ann_dists)
+                for idx, dist in zip(idxs, dists)
                 if dist <= abs(max_neighbor_dist)
             ]
-            ann_indexes, ann_dists = (
+            idxs, dists = (
                 zip(*filtered_neighbors) if filtered_neighbors else ([], [])
             )
-            ann_indexes = list(ann_indexes)
-            ann_dists = list(ann_dists)
+            idxs = list(idxs)
+            dists = list(dists)
 
-            if len(ann_dists) == 0:
+            if len(dists) == 0:
                 raise ValueError(
                     f"No neighbors found for distance threshold of {abs(max_neighbor_dist)}. Try a larger maximum distance."
                 )
             else:
                 print(
-                    f"Found {len(ann_dists)} neighbors for distance threshold of {abs(max_neighbor_dist)}."
+                    f"Found {len(dists)} neighbors for distance threshold of {abs(max_neighbor_dist)}."
                 )
 
         # 4. Get TNS, spec. class of neighbors
         tns_ann_names, tns_ann_classes, tns_ann_zs, neighbor_ztfids = [], [], [], []
         ann_locus_l = []
-        for i in ann_indexes:
-            neighbor_ztfids.append(idx_arr[i])
+        for i in idxs:
+            neighbor_ztfids.append(self._ids[i])
 
-            ann_locus = antares_client.search.get_by_ztf_object_id(ztf_object_id=idx_arr[i])
+            ann_locus = antares_client.search.get_by_ztf_object_id(ztf_object_id=self._ids[i])
             ann_locus_l.append(ann_locus)
 
-            tns_ann_name, tns_ann_cls, tns_ann_z = get_TNS_data(idx_arr[i])
+            tns_ann_name, tns_ann_cls, tns_ann_z = get_TNS_data(self._ids[i])
 
             tns_ann_names.append(tns_ann_name)
             tns_ann_classes.append(tns_ann_cls)
@@ -385,84 +429,89 @@ class ReLAISS:
 
         # Print the nearest neighbors and organize them for storage
         if primer_dict["lc_ztf_id"]:
-            print("\t\t\t\t\t\t ZTFID     IAU_NAME SPEC  Z")
+            print("\t\t\t\t\t\t ztf_object_id     IAU_NAME SPEC  Z")
         else:
             print("\t\t\t\t\tIAU  SPEC  Z")
         print(
             f"Input transient: {'https://alerce.online/object/'+primer_dict['lc_ztf_id'] if primer_dict['lc_ztf_id'] else 'Theorized Lightcurve,'} {primer_dict['lc_tns_name']} {primer_dict['lc_tns_cls']} {primer_dict['lc_tns_z']}\n"
         )
         if primer_dict["host_ztf_id"] is not None:
-            print("\t\t\t\t\t\t\t\t\tZTFID     IAU_NAME SPEC  Z")
+            print("\t\t\t\t\t\t\t\t\tztf_object_id     IAU_NAME SPEC  Z")
             print(
                 f"Transient with host swapped into input: https://alerce.online/object/{primer_dict['host_ztf_id']} {primer_dict['host_tns_name']} {primer_dict['host_tns_cls']} {primer_dict['host_tns_z']}\n"
             )
 
-        # Plot lightcurves
-        plot_lightcurves(
-            primer_dict=primer_dict,
-            plot_label=plot_label,
-            theorized_lightcurve_df=theorized_lightcurve_df,
-            neighbor_ztfids=neighbor_ztfids,
-            ann_locus_l=ann_locus_l,
-            ann_dists=ann_dists,
-            tns_ann_names=tns_ann_names,
-            tns_ann_classes=tns_ann_classes,
-            tns_ann_zs=tns_ann_zs,
-            figure_path=path_to_figure_directory,
-            save_figures=save_figures,
-        )
-
-        # Plot hosts
-        print("\nGenerating hosts grid plot...")
-
-        df_bank = pd.read_csv(path_to_dataset_bank, index_col="ZTFID")
-
-        hosts_to_plot = neighbor_ztfids.copy()
-        host_ra_l, host_dec_l = [], []
-
-        for ztfid in hosts_to_plot:
-            host_ra, host_dec = (
-                df_bank.loc[ztfid].host_ra,
-                df_bank.loc[ztfid].host_dec,
+        if plot:
+            # Plot lightcurves
+            plot_lightcurves(
+                primer_dict=primer_dict,
+                plot_label=plot_label,
+                theorized_lightcurve_df=theorized_lightcurve_df,
+                neighbor_ztfids=neighbor_ztfids,
+                ann_locus_l=ann_locus_l,
+                ann_dists=dists,
+                tns_ann_names=tns_ann_names,
+                tns_ann_classes=tns_ann_classes,
+                tns_ann_zs=tns_ann_zs,
+                figure_path=path_to_figure_directory,
+                save_figures=save_figures,
             )
-            host_ra_l.append(host_ra), host_dec_l.append(host_dec)
 
-        # Add input host for plotting
-        if primer_dict["host_ztf_id"] is None:
-            hosts_to_plot.insert(0, primer_dict["lc_ztf_id"])
-            host_ra_l.insert(0, primer_dict["lc_galaxy_ra"])
-            host_dec_l.insert(0, primer_dict["lc_galaxy_dec"])
-        else:
-            hosts_to_plot.insert(0, primer_dict["host_ztf_id"])
-            host_ra_l.insert(0, primer_dict["host_galaxy_ra"])
-            host_dec_l.insert(0, primer_dict["host_galaxy_dec"])
+            # Plot hosts
+            print("\nGenerating hosts grid plot...")
 
-        host_ann_df = pd.DataFrame(
-            zip(hosts_to_plot, host_ra_l, host_dec_l),
-            columns=["ZTFID", "HOST_RA", "HOST_DEC"],
-        )
+            df_bank = pd.read_csv(dataset_bank, index_col="ztf_object_id")
 
-        plot_hosts(
-            ztfid_ref=(
-                primer_dict["lc_ztf_id"]
-                if primer_dict["host_ztf_id"] is None
-                else primer_dict["host_ztf_id"]
-            ),
-            plot_label=plot_label,
-            df=host_ann_df,
-            figure_path=path_to_figure_directory,
-            ann_num=n,
-            save_pdf=save_figures,
-            imsizepix=100,
-            change_contrast=False,
-            prefer_color=True,
-        )
+            hosts_to_plot = neighbor_ztfids.copy()
+            host_ra_l, host_dec_l = [], []
+
+            for ztfid in hosts_to_plot:
+                host_ra, host_dec = (
+                    df_bank.loc[ztfid].host_ra,
+                    df_bank.loc[ztfid].host_dec,
+                )
+                host_ra_l.append(host_ra), host_dec_l.append(host_dec)
+
+            # Add input host for plotting
+            if primer_dict["host_ztf_id"] is None:
+                hosts_to_plot.insert(0, primer_dict["lc_ztf_id"])
+                host_ra_l.insert(0, primer_dict["lc_galaxy_ra"])
+                host_dec_l.insert(0, primer_dict["lc_galaxy_dec"])
+            else:
+                hosts_to_plot.insert(0, primer_dict["host_ztf_id"])
+                host_ra_l.insert(0, primer_dict["host_galaxy_ra"])
+                host_dec_l.insert(0, primer_dict["host_galaxy_dec"])
+
+            host_ann_df = pd.DataFrame(
+                zip(hosts_to_plot, host_ra_l, host_dec_l),
+                columns=["ztf_object_id", "HOST_RA", "HOST_DEC"],
+            )
+
+            plot_hosts(
+                ztfid_ref=(
+                    primer_dict["lc_ztf_id"]
+                    if primer_dict["host_ztf_id"] is None
+                    else primer_dict["host_ztf_id"]
+                ),
+                plot_label=plot_label,
+                df=host_ann_df,
+                figure_path=path_to_figure_directory,
+                ann_num=n,
+                save_pdf=save_figures,
+                imsizepix=100,
+                change_contrast=False,
+                prefer_color=True,
+            )
 
         # Store neighbors and return
         storage = []
         neighbor_num = 1
+        
+        # Define ALeRCE links for each neighbor
+        ann_alerce_links = [f"https://alerce.online/object/{ztf_id}" for ztf_id in neighbor_ztfids]
+        
         for al, iau_name, spec_cls, z, dist in zip(
-            ann_alerce_links, tns_ann_names, tns_ann_classes, tns_ann_zs, ann_dists
+            ann_alerce_links, tns_ann_names, tns_ann_classes, tns_ann_zs, dists
         ):
             print(f"ANN={neighbor_num}: {al} {iau_name} {spec_cls}, {z}")
             neighbor_dict = {
@@ -477,11 +526,5 @@ class ReLAISS:
             }
             storage.append(neighbor_dict)
             neighbor_num += 1
-
-        end_time = time.time()
-        ann_elapsed_time = ann_end_time - ann_start_time
-        elapsed_time = end_time - start_time
-        print(f"\nANN elapsed_time: {round(ann_elapsed_time, 3)} s")
-        print(f"total elapsed_time: {round(elapsed_time, 3)} s\n")
 
         return pd.DataFrame(storage)

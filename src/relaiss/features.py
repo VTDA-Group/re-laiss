@@ -27,6 +27,147 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 central_wv = {"g": 4849.11, "r": 6201.20, "i": 7534.96, "z": 8674.20}
 
+def old_build_dataset_bank(
+    raw_df_bank,
+    av_in_raw_df_bank=False,
+    path_to_sfd_folder=None,
+    theorized=False,
+    path_to_dataset_bank=None,
+    building_entire_df_bank=False,
+    building_for_AD=False,
+):
+
+    raw_lc_features = constants.lc_features_const.copy()
+    raw_host_features = constants.raw_host_features_const.copy()
+
+    if av_in_raw_df_bank:
+        if "A_V" not in raw_host_features:
+            raw_host_features.append("A_V")
+    else:
+        for col in ["ra", "dec"]:
+            if col not in raw_host_features:
+                raw_host_features.insert(0, col)
+
+    # if "ztf_object_id" is the index, move it to the first column
+    if raw_df_bank.index.name == "ztf_object_id":
+        raw_df_bank = raw_df_bank.reset_index()
+
+    if theorized:
+        raw_features = raw_lc_features
+        raw_feats_no_ztf = raw_lc_features
+    else:
+        raw_features = ["ztf_object_id"] + raw_lc_features + raw_host_features
+        raw_feats_no_ztf = raw_lc_features + raw_host_features
+
+    # Check to make sure all required features are in the raw data
+    missing_cols = [col for col in raw_features if col not in raw_df_bank.columns]
+    if missing_cols:
+        print(
+            f"KeyError: The following columns for this transient are not in the raw data: {missing_cols}. Abort!"
+        )
+        return
+
+    # Impute missing features
+    test_dataset_bank = raw_df_bank.replace([np.inf, -np.inf, -999], np.nan).dropna(
+        subset=raw_features
+    )
+
+    nan_cols = [
+        col
+        for col in raw_features
+        if raw_df_bank[col].replace([np.inf, -np.inf, -999], np.nan).isna().all()
+    ]
+
+    if not building_for_AD:
+        print(
+            f"There are {len(raw_df_bank) - len(test_dataset_bank)} of {len(raw_df_bank)} rows in the timeseries dataframe with 1 or more NA features."
+        )
+        if len(nan_cols) != 0:
+            print(
+                f"The following {len(nan_cols)} feature(s) are NaN for all measurements: {nan_cols}."
+            )
+        print("Imputing features (if necessary)...")
+
+    wip_dataset_bank = raw_df_bank
+
+    if building_entire_df_bank:
+        X = raw_df_bank[raw_feats_no_ztf]
+
+        feat_imputer = KNNImputer(weights="distance").fit(X)
+        imputed_filt_arr = feat_imputer.transform(X)
+    else:
+        true_raw_df_bank = pd.read_csv(path_to_dataset_bank)
+        X = true_raw_df_bank[raw_feats_no_ztf]
+
+        if building_for_AD:
+            # Use mean imputation
+            feat_imputer = SimpleImputer(strategy="mean").fit(X)
+        else:
+            # Use KNN imputation
+            feat_imputer = KNNImputer(weights="distance").fit(X)
+
+        imputed_filt_arr = feat_imputer.transform(wip_dataset_bank[raw_feats_no_ztf])
+
+    imputed_filt_df = pd.DataFrame(imputed_filt_arr, columns=raw_feats_no_ztf)
+    imputed_filt_df.index = raw_df_bank.index
+
+    wip_dataset_bank[raw_feats_no_ztf] = imputed_filt_df
+
+    wip_dataset_bank = wip_dataset_bank.replace([np.inf, -np.inf, -999], np.nan).dropna(
+        subset=raw_features
+    )
+
+    if not building_for_AD:
+        if not wip_dataset_bank.empty:
+            print("Successfully imputed features.")
+        else:
+            print("Failed to impute features.")
+
+    # Engineer the remaining features
+    if not theorized:
+        if not building_for_AD:
+            print("Engineering remaining features...")
+        # Correct host magnitude features for dust
+        m = sfdmap.SFDMap(path_to_sfd_folder)
+
+        MW_RV = 3.1
+        ext = G23(Rv=MW_RV)
+        MW_EBV = m.ebv(wip_dataset_bank["ra"].to_numpy(), wip_dataset_bank["dec"].to_numpy())
+        AV = MW_RV * MW_EBV
+
+        for band in ["g", "r", "i", "z"]:
+            mags = wip_dataset_bank[f"{band}KronMag"].to_numpy()
+            A_filter = -2.5 * np.log10(
+                ext.extinguish(central_wv[band]*u.AA, Av=AV)
+            )
+            wip_dataset_bank[f"{band}KronMagCorrected"] = mags - A_filter
+
+        # Create color features
+        wip_dataset_bank["gminusrKronMag"] = (
+            wip_dataset_bank["gKronMag"] - wip_dataset_bank["rKronMag"]
+        )
+        wip_dataset_bank["rminusiKronMag"] = (
+            wip_dataset_bank["rKronMag"] - wip_dataset_bank["iKronMag"]
+        )
+        wip_dataset_bank["iminuszKronMag"] = (
+            wip_dataset_bank["iKronMag"] - wip_dataset_bank["zKronMag"]
+        )
+
+        # Calculate color uncertainties
+        wip_dataset_bank["gminusrKronMagErr"] = np.sqrt(
+            wip_dataset_bank["gKronMagErr"] ** 2 + wip_dataset_bank["rKronMagErr"] ** 2
+        )
+        wip_dataset_bank["rminusiKronMagErr"] = np.sqrt(
+            wip_dataset_bank["rKronMagErr"] ** 2 + wip_dataset_bank["iKronMagErr"] ** 2
+        )
+        wip_dataset_bank["iminuszKronMagErr"] = np.sqrt(
+            wip_dataset_bank["iKronMagErr"] ** 2 + wip_dataset_bank["zKronMagErr"] ** 2
+        )
+
+    final_df_bank = wip_dataset_bank
+
+    return final_df_bank
+
 def build_dataset_bank(
     raw_df_bank,
     av_in_raw_df_bank=False,
@@ -64,7 +205,7 @@ def build_dataset_bank(
     Returns
     -------
     pandas.DataFrame
-        Fully hydrated feature table indexed by ``ZTFID``.
+        Fully hydrated feature table indexed by ``ztf_object_id``.
     """
     raw_lc_features = constants.lc_features_const.copy()
     raw_host_features = constants.raw_host_features_const.copy()
@@ -77,15 +218,15 @@ def build_dataset_bank(
             if col not in raw_host_features:
                 raw_host_features.insert(0, col)
 
-    # if "ZTFID" is the index, move it to the first column
-    if raw_df_bank.index.name == "ZTFID":
+    # if "ztf_object_id" is the index, move it to the first column
+    if raw_df_bank.index.name == "ztf_object_id":
         raw_df_bank = raw_df_bank.reset_index()
 
     if theorized:
         raw_features = raw_lc_features
         raw_feats_no_ztf = raw_lc_features
     else:
-        raw_features = ["ZTFID"] + raw_lc_features + raw_host_features
+        raw_features = ["ztf_object_id"] + raw_lc_features + raw_host_features
         raw_feats_no_ztf = raw_lc_features + raw_host_features
 
     # Check to make sure all required features are in the raw data
@@ -157,18 +298,6 @@ def build_dataset_bank(
             print("Engineering remaining features...")
         # Correct host magnitude features for dust
         m = sfdmap.SFDMap(path_to_sfd_folder)
-
-        #for band in ["g", "r", "i", "z"]:
-        #    wip_dataset_bank[band + "KronMagCorrected"] = wip_dataset_bank.apply(
-        #        lambda row: getExtinctionCorrectedMag(
-        #            transient_row=row,
-        #            band=band,
-        #            av_in_raw_df_bank=av_in_raw_df_bank,
-        #            path_to_sfd_folder=path_to_sfd_folder,
-        #            m=m
-        #        ),
-        #        axis=1,
-        #    )
 
         MW_RV = 3.1
         ext = G23(Rv=MW_RV)
@@ -254,7 +383,7 @@ def create_features_dict(
 def extract_lc_and_host_features(
     ztf_id,
     path_to_timeseries_folder,
-    path_to_sfd_data_folder,
+    path_to_sfd_folder,
     path_to_dataset_bank=None,
     theorized_lightcurve_df=None,
     show_lc=False,
@@ -277,7 +406,7 @@ def extract_lc_and_host_features(
         ZTF object identifier (ignored when *theorized_lightcurve_df* is given).
     path_to_timeseries_folder : str | Path
         Folder to cache per-object time-series CSVs.
-    path_to_sfd_data_folder : str | Path
+    path_to_sfd_folder : str | Path
         Location of SFD dust maps.
     theorized_lightcurve_df : pandas.DataFrame | None, optional
         Pre-simulated LC in ANTARES column format (``ant_passband``, ``ant_mjd``,
@@ -308,7 +437,7 @@ def extract_lc_and_host_features(
         df_ref["ant_passband"] = df_ref["ant_passband"].replace({"G": "g", "r": "R"})
     else:
         try:
-            ref_info = antares_client.search.get_by_ZTFID(ZTFID=ztf_id)
+            ref_info = antares_client.search.get_by_ztf_object_id(ztf_id)
             df_ref = ref_info.timeseries.to_pandas()
         except:
             print("antares_client can't find this object. Abort!")
@@ -363,7 +492,7 @@ def extract_lc_and_host_features(
     # Engineer features in time
     lc_col_names = constants.lc_features_const.copy()
     lc_timeseries_feat_df = pd.DataFrame(
-        columns=["ZTFID"] + ["obs_num"] + ["mjd_cutoff"] + lc_col_names
+        columns=["ztf_object_id"] + ["obs_num"] + ["mjd_cutoff"] + lc_col_names
     )
     for i in range(min_obs_count, len(lightcurve) + 1):
 
@@ -389,7 +518,7 @@ def extract_lc_and_host_features(
                 time_r=time_r,
                 mag_r=mag_r,
                 err_r=err_r,
-                ZTFID=ztf_id,
+                ztf_object_id=ztf_id,
             )
 
             engineered_lc_properties_df = extractor.extract_features(
@@ -404,7 +533,7 @@ def extract_lc_and_host_features(
             engineered_lc_properties_df.insert(0, "obs_num", int(i))
             engineered_lc_properties_df.insert(
                 0,
-                "ZTFID",
+                "ztf_object_id",
                 ztf_id if theorized_lightcurve_df is None else "theorized_lightcurve",
             )
 
@@ -509,12 +638,12 @@ def extract_lc_and_host_features(
             )
             lc_and_hosts_df = pd.concat([lc_timeseries_feat_df, hosts_df], axis=1)
         else:
-            lc_timeseries_feat_df.loc[0, "ZTFID"] = (
+            lc_timeseries_feat_df.loc[0, "ztf_object_id"] = (
                 ztf_id if theorized_lightcurve_df is None else "theorized_lightcurve"
             )
             lc_and_hosts_df = pd.concat([lc_timeseries_feat_df, hosts_df], axis=1)
 
-        lc_and_hosts_df = lc_and_hosts_df.set_index("ZTFID")
+        lc_and_hosts_df = lc_and_hosts_df.set_index("ztf_object_id")
 
         lc_and_hosts_df["raMean"] = hosts.raMean.values[0]
         lc_and_hosts_df["decMean"] = hosts.decMean.values[0]
@@ -537,7 +666,7 @@ def extract_lc_and_host_features(
             else lc_timeseries_feat_df
         ),
         av_in_raw_df_bank=False,
-        path_to_sfd_folder=path_to_sfd_data_folder,
+        path_to_sfd_folder=path_to_sfd_folder,
         theorized=True if theorized_lightcurve_df is not None else False,
         path_to_dataset_bank=path_to_dataset_bank,
         building_for_AD=building_for_AD,
@@ -555,7 +684,6 @@ def extract_lc_and_host_features(
             print("Saved timeseries features for theorized lightcurve!\n")
 
     return lc_and_hosts_df_hydrated
-
 
 def getExtinctionCorrectedMag(
     transient_row,
@@ -681,11 +809,11 @@ class SupernovaFeatureExtractor:
             "r_rise_local_curvature": "Median second derivative of rising r-band light curve (20d window)",
             "r_decline_local_curvature": "Median second derivative of declining r-band light curve (20d window)",
             "features_valid": "Whether all key features were successfully computed",
-            "ZTFID": "ZTF object identifier",
+            "ztf_object_id": "ZTF object identifier",
         }
 
     def __init__(
-        self, time_g, mag_g, err_g, time_r, mag_r, err_r, ZTFID=None, ra=None, dec=None
+        self, time_g, mag_g, err_g, time_r, mag_r, err_r, ztf_object_id=None, ra=None, dec=None
     ):
         """Create a feature extractor for g/r light curves.
 
@@ -698,15 +826,15 @@ class SupernovaFeatureExtractor:
             g-band MJD, magnitude and 1-σ uncertainty.
         time_r, mag_r, err_r : array-like
             r-band MJD, magnitude and 1-σ uncertainty.
-        ZTFID : str | None, optional
+        ztf_object_id : str | None, optional
             Identifier used in warnings and output tables.
         ra, dec : float | None, optional
             ICRS coordinates (deg) for dust-extinction correction.
         """
-        if ZTFID:
-            self.ZTFID = ZTFID
+        if ztf_object_id:
+            self.ztf_object_id = ztf_object_id
         else:
-            self.ZTFID = "Theorized Lightcurve"
+            self.ztf_object_id = "Theorized Lightcurve"
         self.g = {
             "time": np.array(time_g),
             "mag": np.array(mag_g),
@@ -766,7 +894,7 @@ class SupernovaFeatureExtractor:
         if len(self.g["time"]) == 0 or len(self.r["time"]) == 0:
             pass
             # print(
-            #     f"Warning: No data left in g or r band after filtering for object: {self.ZTFID}. Skipping."
+            #     f"Warning: No data left in g or r band after filtering for object: {self.ztf_object_id}. Skipping."
             # )
         else:
             new_time_offset = min(self.g["time"].min(), self.r["time"].min())
@@ -1046,7 +1174,7 @@ class SupernovaFeatureExtractor:
         """
         if len(self.g["time"]) == 0 or len(self.r["time"]) == 0:
             # print(
-            #     f"Warning: No data left in g or r band after filtering for object: {self.ZTFID}. Skipping."
+            #     f"Warning: No data left in g or r band after filtering for object: {self.ztf_object_id}. Skipping."
             # )
             return None
 
@@ -1141,7 +1269,7 @@ class SupernovaFeatureExtractor:
                 time_r=self.r["time"],
                 mag_r=perturbed_r,
                 err_r=self.r["err"],
-                ZTFID=self.ZTFID,
+                ztf_object_id=self.ztf_object_id,
             )
             results.append(f.extract_features().iloc[0])
         df = pd.DataFrame(results)

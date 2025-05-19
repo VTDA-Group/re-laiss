@@ -69,8 +69,8 @@ def plot_lightcurves(
 
     if primer_dict["lc_ztf_id"] is not None:
         ztf_id = primer_dict["lc_ztf_id"]
-        ref_info = antares_client.search.get_by_ZTFID(
-            ZTFID=ztf_id
+        ref_info = antares_client.search.get_by_ztf_object_id(
+            ztf_id
         )
         try:
             df_ref = ref_info.timeseries.to_pandas()
@@ -241,7 +241,7 @@ def plot_hosts(
     plot_label : str
         Basename for the output PDF.
     df : pandas.DataFrame
-        Table with ``ZTFID``, ``HOST_RA``, ``HOST_DEC`` columns.
+        Table with ``ztf_object_id``, ``HOST_RA``, ``HOST_DEC`` columns.
     figure_path : str | Path
         Destination directory for ``host_grids/*.pdf``.
     ann_num : int
@@ -288,7 +288,7 @@ def plot_hosts(
 
             row = df.iloc[idx]
             ztfid, ra, dec = (
-                str(row["ZTFID"]),
+                str(row["ztf_object_id"]),
                 float(row["HOST_RA"]),
                 float(row["HOST_DEC"]),
             )
@@ -386,7 +386,7 @@ def corner_plot(
     neighbor_ztfids = [link.split("/")[-1] for link in neighbors_df["ztf_link"]]
 
     dataset_bank_df = pd.read_csv(path_to_dataset_bank)[
-        ["ZTFID"] + lc_feature_names + host_feature_names
+        ["ztf_object_id"] + lc_feature_names + host_feature_names
     ]
     print("Total number of transients for corner plots:", dataset_bank_df.shape[0])
 
@@ -418,7 +418,7 @@ def corner_plot(
 
             return df_clean
 
-        dataset_bank_df_batch_features = dataset_bank_df[["ZTFID"] + features]
+        dataset_bank_df_batch_features = dataset_bank_df[["ztf_object_id"] + features]
 
         if remove_outliers_bool:
             dataset_bank_df_batch_features = remove_outliers(
@@ -437,7 +437,7 @@ def corner_plot(
                 dataset_bank_df_batch_features.shape[0],
             )
         # REMOVING OUTLIERS #
-        neighbor_mask = dataset_bank_df_batch_features["ZTFID"].isin(
+        neighbor_mask = dataset_bank_df_batch_features["ztf_object_id"].isin(
             neighbor_ztfids
         )
         features_df = dataset_bank_df_batch_features[features]
