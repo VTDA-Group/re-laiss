@@ -21,8 +21,36 @@ from sklearn import preprocessing
 import antares_client
 import matplotlib.pyplot as plt
 import joblib
+import requests
+import shutil
+from urllib.parse import urljoin
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
+SFD_URL = "https://github.com/kbarbary/sfddata/raw/refs/heads/master/"
+SFD_FILES = ["SFD_dust_4096_ngp.fits", "SFD_dust_4096_sgp.fits"]
+
+def download_sfd_files(path_to_sfd_folder):
+    """Download SFD dust map files if they don't exist.
+    
+    Parameters
+    ----------
+    path_to_sfd_folder : str | Path
+        Directory where SFD files should be stored.
+    """
+    path_to_sfd_folder = Path(path_to_sfd_folder)
+    path_to_sfd_folder.mkdir(parents=True, exist_ok=True)
+    
+    for filename in SFD_FILES:
+        filepath = path_to_sfd_folder / filename
+        if not filepath.exists():
+            print(f"Downloading {filename}...")
+            url = urljoin(SFD_URL, filename)
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            
+            with open(filepath, 'wb') as f:
+                shutil.copyfileobj(response.raw, f)
+            print(f"Downloaded {filename} to {filepath}")
 
 class ReLAISS:
     def __init__(
@@ -70,6 +98,9 @@ class ReLAISS:
         """
         from . import constants as _c
 
+        # Download SFD files if they don't exist
+        download_sfd_files(path_to_sfd_folder)
+        
         lc_features = list(lc_features) if lc_features is not None else _c.lc_features_const.copy()
         host_features = list(host_features) if host_features is not None else _c.raw_host_features_const.copy()
 
