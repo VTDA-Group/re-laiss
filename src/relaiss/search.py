@@ -27,36 +27,62 @@ def primer(
     num_sims=0,
 ):
     """Assemble input feature vectors (and MC replicas) for a query object.
-
-    Combines LC + host features—optionally swapping in a different host—and
-    returns a dict used later by NN and AD stages.
-
+    
+    This function combines lightcurve and host galaxy features to create a feature vector
+    for similarity search. It can optionally swap in a different host galaxy and generate
+    Monte Carlo replicas for uncertainty propagation.
+    
     Parameters
     ----------
     lc_ztf_id : str | None
-        ZTF ID of the transient to query.  Mutually exclusive with
-        *theorized_lightcurve_df*.
+        ZTF ID of the transient to query. Mutually exclusive with theorized_lightcurve_df.
     theorized_lightcurve_df : pandas.DataFrame | None
-        Pre-computed ANTARES-style LC for a theoretical model.
-    host_ztf_id : str | None
-        If given, replace the query object's host features with those of this
-        transient.
-    dataset_bank_path, path_to_timeseries_folder, path_to_sfd_folder : str | Path
-        Locations for cached data.
-    lc_features, host_features : list[str]
-        Names of columns to extract.
-    num_sims : int, default 10
-        Number of Monte-Carlo perturbations for uncertainty propagation.
-
+        Pre-computed ANTARES-style lightcurve for a theoretical model.
+        Mutually exclusive with lc_ztf_id.
+    dataset_bank_path : str | Path
+        Path to the dataset bank CSV file containing feature data.
+    path_to_timeseries_folder : str | Path
+        Directory for storing/loading timeseries data.
+    path_to_sfd_folder : str | Path
+        Directory containing SFD dust map files for extinction correction.
+    save_timeseries : bool, default False
+        Whether to save the timeseries data to disk.
+    host_ztf_id : str | None, default None
+        If provided, replace the query object's host features with those of this transient.
+    lc_features : list[str], default []
+        Names of lightcurve feature columns to extract.
+    host_features : list[str], default []
+        Names of host galaxy feature columns to extract.
+    num_sims : int, default 0
+        Number of Monte Carlo perturbations for uncertainty propagation.
+        
     Returns
     -------
     dict
-        Primer dictionary containing feature arrays, metadata, and MC sims.
-
+        Dictionary containing:
+        - host_ztf_id: ZTF ID of swapped host (if any)
+        - host_tns_name: TNS name of swapped host
+        - host_tns_cls: Spectral class of swapped host
+        - host_tns_z: Redshift of swapped host
+        - host_ztf_id_in_dataset_bank: Whether host is in dataset bank
+        - host_galaxy_ra/dec: Host galaxy coordinates
+        - lc_ztf_id: ZTF ID of input transient
+        - lc_tns_name/cls/z: TNS info for input transient
+        - lc_ztf_id_in_dataset_bank: Whether transient is in dataset bank
+        - locus_feat_arr: Combined feature array
+        - locus_feat_arrs_mc_l: List of MC perturbed feature arrays
+        - lc_galaxy_ra/dec: Input transient host coordinates
+        - lc_feat_names: List of lightcurve feature names
+        - host_feat_names: List of host feature names
+        
     Raises
     ------
     ValueError
-        On inconsistent inputs or missing data.
+        If both lc_ztf_id and theorized_lightcurve_df are provided
+        If neither lc_ztf_id nor theorized_lightcurve_df is provided
+        If theorized_lightcurve_df is provided without host_ztf_id
+        If required features are missing from dataset bank
+        If NaN features are found in timeseries data
     """
     feature_names = lc_features + host_features
     if lc_ztf_id is not None and theorized_lightcurve_df is not None:

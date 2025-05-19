@@ -230,34 +230,43 @@ def plot_hosts(
     prefer_color=True,
 ):
     """Create 3×3 PS1 thumbnail grids for candidate host galaxies.
-
-    Saves each page to a multi-page PDF and optionally shows colour cut-outs
-    when available.
-
+    
+    This function creates a multi-page PDF containing PS1 thumbnail images of host
+    galaxies for a set of transients. Each page contains a 3x3 grid of images, with
+    the reference transient's host in the top-left position.
+    
     Parameters
     ----------
     ztfid_ref : str
-        Reference transient ID (title use only).
+        ZTF ID of the reference transient (used in title only).
     plot_label : str
-        Basename for the output PDF.
+        Base name for the output PDF file.
     df : pandas.DataFrame
-        Table with ``ztf_object_id``, ``HOST_RA``, ``HOST_DEC`` columns.
+        DataFrame containing host galaxy information with columns:
+        - ztf_object_id: ZTF ID of the transient
+        - HOST_RA: Right ascension of the host galaxy
+        - HOST_DEC: Declination of the host galaxy
     figure_path : str | Path
-        Destination directory for ``host_grids/*.pdf``.
+        Root directory for saving the PDF file.
     ann_num : int
-        ANN neighbour index (used in filename).
+        ANN neighbor index (used in filename).
     save_pdf : bool, default True
-        Whether to write the PDF.
+        Whether to save the PDF file.
     imsizepix : int, default 100
-        PS1 cut-out size in pixels.
+        Size of PS1 cutout images in pixels.
     change_contrast : bool, default False
-        Use a shallower stretch (93 %) for grayscale images.
+        Whether to use a shallower stretch (93%) for grayscale images.
     prefer_color : bool, default True
-        Try RGB first, fall back to r-band grayscale.
-
+        Whether to prefer RGB images over grayscale.
+        
     Returns
     -------
     None
+        
+    Notes
+    -----
+    The output PDF will be saved as:
+    {figure_path}/host_grids/{plot_label}_host_thumbnails_ann={ann_num}.pdf
     """
 
     host_grid_path = figure_path + "/host_grids"
@@ -343,23 +352,40 @@ def corner_plot(
     path_to_figure_directory="../figures",
     save_plots=True,
 ):
-    """Corner-plot visualisation of feature distributions vs. neighbours.
-
+    """Create corner plots comparing feature distributions between neighbors and the full dataset.
+    
+    This function creates corner plots that visualize the distribution of features
+    for the nearest neighbors compared to the full dataset. The input transient's
+    features are marked in green, neighbors in red, and the full dataset in blue.
+    
     Parameters
     ----------
     neighbors_df : pandas.DataFrame
-        Output from :func:`rl.find_neighbors`.
+        DataFrame containing neighbor information from find_neighbors().
     primer_dict : dict
-        Output from :func:`primer`.
+        Dictionary containing feature information for the input transient.
     path_to_dataset_bank : str | Path
+        Path to the dataset bank CSV file.
     remove_outliers_bool : bool, default True
-        Apply robust MAD clipping before plotting.
+        Whether to remove outliers using robust MAD clipping.
+    path_to_figure_directory : str | Path, default "../figures"
+        Directory to save the corner plots.
     save_plots : bool, default True
-        Write PNGs to ``corner_plots/``.
-
+        Whether to save the plots to disk.
+        
     Returns
     -------
     None
+        
+    Raises
+    ------
+    ValueError
+        If primer_dict or neighbors_df is None.
+        
+    Notes
+    -----
+    The corner plots are saved as PNG files in:
+    {path_to_figure_directory}/corner_plots/{batch_name}.png
     """
     if primer_dict is None:
         raise ValueError(

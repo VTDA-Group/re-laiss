@@ -32,10 +32,21 @@ SFD_FILES = ["SFD_dust_4096_ngp.fits", "SFD_dust_4096_sgp.fits"]
 def download_sfd_files(path_to_sfd_folder):
     """Download SFD dust map files if they don't exist.
     
+    This function downloads the necessary SFD dust map files from the GitHub repository
+    if they are not already present in the specified directory. These files are required
+    for extinction corrections in the reLAISS pipeline.
+    
     Parameters
     ----------
     path_to_sfd_folder : str | Path
-        Directory where SFD files should be stored.
+        Directory where SFD files should be stored. The function will create this
+        directory if it doesn't exist.
+        
+    Notes
+    -----
+    Downloads two files:
+    - SFD_dust_4096_ngp.fits
+    - SFD_dust_4096_sgp.fits
     """
     path_to_sfd_folder = Path(path_to_sfd_folder)
     path_to_sfd_folder.mkdir(parents=True, exist_ok=True)
@@ -53,9 +64,44 @@ def download_sfd_files(path_to_sfd_folder):
             print(f"Downloaded {filename} to {filepath}")
 
 class ReLAISS:
-    def __init__(
-        self) -> None:
-
+    """A class for finding similar transients using the reLAISS algorithm.
+    
+    This class implements the reLAISS (Reference Lightcurve and Host Galaxy Similarity Search)
+    algorithm for finding similar astronomical transients based on their lightcurves
+    and host galaxy properties.
+    
+    Attributes
+    ----------
+    bank_csv : Path
+        Path to the reference dataset bank CSV file.
+    index_stem : Path
+        Stem path for the ANNOY index files.
+    scaler : StandardScaler
+        Scaler used for feature normalization.
+    pca : Optional[PCA]
+        PCA model if dimensionality reduction is used.
+    lc_features : list[str]
+        List of lightcurve feature names.
+    host_features : list[str]
+        List of host galaxy feature names.
+    feat_arr_scaled : np.ndarray
+        Scaled feature array used for indexing.
+    path_to_sfd_folder : Path
+        Path to SFD dust map files.
+    _index : annoy.AnnoyIndex
+        ANNOY index for fast similarity search.
+    _ids : np.ndarray
+        Array of ZTF IDs corresponding to the index.
+    use_pca : bool
+        Whether PCA is being used for dimensionality reduction.
+    """
+    
+    def __init__(self) -> None:
+        """Initialize a new ReLAISS instance.
+        
+        Creates a new ReLAISS instance with uninitialized attributes. These will be
+        set when load_reference() is called.
+        """
         self.bank_csv: Path
         self.index_stem: Path
         self.scaler: StandardScaler
@@ -197,30 +243,58 @@ class ReLAISS:
         path_to_figure_directory="../figures",
     ):
         """Query the ANNOY index and plot nearest-neighbor diagnostics.
-
+        
+        This method finds the most similar transients to the input transient in the
+        reference dataset bank. It can use either a real transient (specified by
+        ztf_object_id) or a theorized lightcurve.
+        
         Parameters
         ----------
-        annoy_index_file_stem : str
-            Stem path returned by :func:`build_indexed_sample`.
-        use_pca, num_pca_components : see above
+        ztf_object_id : str
+            ZTF ID of the transient to find neighbors for.
+        theorized_lightcurve_df : pandas.DataFrame | None, default None
+            Optional simulated lightcurve to use instead of a real transient.
+        path_to_dataset_bank : str | Path | None, default None
+            Path to the dataset bank CSV. If None, uses the bank loaded in load_reference().
+        use_pca : bool, default False
+            Whether to use PCA for dimensionality reduction.
+        num_pca_components : int, default 20
+            Number of PCA components to use if use_pca is True.
         n : int, default 8
-            Number of neighbours to return.
+            Number of neighbors to return.
         suggest_neighbor_num : bool, default False
             If True, plots the distance elbow and exits early.
-        max_neighbor_dist : float | None
-            Optional cut on L1 distance.
+        max_neighbor_dist : float | None, default None
+            Optional maximum L1 distance for neighbors.
         search_k : int, default 1000
-            ANNOY *search_k* parameter.
-        weight_lc_feats_factor : float, default 1
-            Same interpretation as in ``build_indexed_sample``.
+            ANNOY search_k parameter for controlling search accuracy.
+        weight_lc_feats_factor : float, default 1.0
+            Factor to up-weight lightcurve features relative to host features.
+        plot : bool, default False
+            Whether to generate diagnostic plots.
         save_figures : bool, default False
-            Write LC + host plots and distance-elbow PNGs.
-        path_to_figure_directory : str | Path
-
+            Whether to save the diagnostic plots to disk.
+        path_to_figure_directory : str | Path, default "../figures"
+            Directory to save figures in if save_figures is True.
+            
         Returns
         -------
         pandas.DataFrame | None
-            Table summarising neighbours (or *None* if *suggest_neighbor_num=True*).
+            DataFrame containing neighbor information with columns:
+            - input_ztf_id: ZTF ID of the input transient
+            - input_swapped_host_ztf_id: ZTF ID of the host galaxy (if swapped)
+            - neighbor_num: Index of the neighbor
+            - ztf_link: Link to the neighbor in ALeRCE
+            - dist: Distance to the neighbor
+            - iau_name: IAU name of the neighbor
+            - spec_cls: Spectral classification
+            - z: Redshift
+            Returns None if suggest_neighbor_num is True.
+            
+        Raises
+        ------
+        ValueError
+            If n is None or <= 0, or if no neighbors are found within max_neighbor_dist.
         """
         start_time = time.time()
 

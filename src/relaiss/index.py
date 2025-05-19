@@ -21,39 +21,61 @@ def build_indexed_sample(
     weight_lc_feats_factor=1.0,
 ):
     """Create (or load) an ANNOY index over a reference feature bank.
-
+    
+    This function builds or loads an ANNOY index for fast similarity search over a dataset
+    of astronomical transients. It can optionally apply PCA for dimensionality reduction
+    and weight lightcurve features more heavily than host features.
+    
     Parameters
     ----------
-    data_bank : Pandas DataFrame
-        CSV produced by ``build_data_bank``; must contain ``ztf_object_id``.
-    lc_features, host_features : list[str]
-        Feature columns to include in the index.
-        Provide one or both lists.
+    data_bank : pandas.DataFrame
+        DataFrame containing feature data with ztf_object_id as index.
+    lc_features : list[str], default []
+        Names of lightcurve feature columns to include.
+    host_features : list[str], default []
+        Names of host galaxy feature columns to include.
     use_pca : bool, default False
-        Apply PCA before indexing.
-    n_components : int | None
-        Dimensionality of PCA space; ignored if *use_pca=False*.
+        Whether to apply PCA before indexing.
+    num_pca_components : int | None, default None
+        Number of PCA components to use. If None and use_pca=True,
+        keeps 99% of variance.
     num_trees : int, default 1000
-        Number of random projection trees for ANNOY.
+        Number of random projection trees for ANNOY index.
     path_to_index_directory : str | Path, default ""
-        Folder for ``*.ann`` plus ``*.npy`` support files.
+        Directory to save index and support files.
     save : bool, default True
-        Persist index and numpy arrays.
-    force_recreation_of_index : bool, default False
-        Rebuild even when an index file already exists.
-    weight_lc_feats_factor : float, default 1
-        Scalar >1 up-weights LC columns relative to host features
-        (ignored if *use_pca=True*).
-
+        Whether to save the index and support files to disk.
+    force_recreation_of_index : bool, default True
+        Whether to rebuild the index even if it already exists.
+    weight_lc_feats_factor : float, default 1.0
+        Factor to up-weight lightcurve features relative to host features.
+        Ignored if use_pca=True.
+        
     Returns
     -------
-    str
-        Stem path (without ``.ann`` extension) of the built/loaded index.
-
+    tuple
+        (index_stem_name_with_path, scaler, feat_arr_scaled)
+        - index_stem_name_with_path: Path to index files (without extension)
+        - scaler: Fitted StandardScaler instance
+        - feat_arr_scaled: Scaled feature array
+        
     Raises
     ------
     ValueError
-        When feature inputs are invalid or required columns are missing.
+        If no features are provided
+        If required columns are missing from data_bank
+        If data contains NaN or infinite values after scaling
+        
+    Notes
+    -----
+    The function saves several files:
+    - {index_stem_name_with_path}.ann: ANNOY index file
+    - {index_stem_name_with_path}_idx_arr.npy: Array of ZTF IDs
+    - {index_stem_name_with_path}_feat_arr.npy: Original feature array
+    - {index_stem_name_with_path}_scaler.joblib: Fitted scaler
+    - {index_stem_name_with_path}_feat_arr_scaled.npy: Scaled features
+    - {index_stem_name_with_path}_pca.joblib: PCA model (if use_pca=True)
+    - {index_stem_name_with_path}_feat_arr_scaled_pca.npy: PCA-transformed features
     """
 
     # Confirm that the first column is the ZTF ID, and index by ZTF ID
