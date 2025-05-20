@@ -857,7 +857,23 @@ class SupernovaFeatureExtractor:
             Identifier used in warnings and output tables.
         ra, dec : float | None, optional
             ICRS coordinates (deg) for dust-extinction correction.
+        
+        Raises
+        ------
+        ValueError
+            If input arrays are empty or have different lengths.
         """
+        # Input validation
+        if len(time_g) == 0 and len(time_r) == 0:
+            raise ValueError("Both g and r bands are empty")
+            
+        # Check that each band's arrays have the same length
+        if len(time_g) != len(mag_g) or len(time_g) != len(err_g):
+            raise ValueError(f"G band arrays have different lengths: time={len(time_g)}, mag={len(mag_g)}, err={len(err_g)}")
+            
+        if len(time_r) != len(mag_r) or len(time_r) != len(err_r):
+            raise ValueError(f"R band arrays have different lengths: time={len(time_r)}, mag={len(mag_r)}, err={len(err_r)}")
+            
         if ztf_object_id:
             self.ztf_object_id = ztf_object_id
         else:
@@ -872,17 +888,33 @@ class SupernovaFeatureExtractor:
             "mag": np.array(mag_r),
             "err": np.array(err_r),
         }
-        t0 = min(self.g["time"].min(), self.r["time"].min())
+        
+        # Handle t0 calculation for empty bands
+        if len(self.g["time"]) > 0 and len(self.r["time"]) > 0:
+            t0 = min(self.g["time"].min(), self.r["time"].min())
+        elif len(self.g["time"]) > 0:
+            t0 = self.g["time"].min()
+        elif len(self.r["time"]) > 0:
+            t0 = self.r["time"].min()
+        else:
+            t0 = 0  # Both empty (should have been caught earlier)
+            
         self.time_offset = t0
-        self.g["time"] -= t0
-        self.r["time"] -= t0
+        
+        # Apply time offset
+        if len(self.g["time"]) > 0:
+            self.g["time"] -= t0
+        if len(self.r["time"]) > 0:
+            self.r["time"] -= t0
+            
+        # Apply extinction correction if coordinates provided
         if ra is not None and dec is not None:
             ebv = m.ebv(ra, dec)
             ext = G23(Rv=3.1)
-            lambda_g = 0.477
-            lambda_r = 0.623
-            Ag = ext.extinguish(lambda_g, Ebv=ebv, unit="um")
-            Ar = ext.extinguish(lambda_r, Ebv=ebv, unit="um")
+            lambda_g = 0.477 * u.um
+            lambda_r = 0.623 * u.um
+            Ag = ext.extinguish(lambda_g, Ebv=ebv)
+            Ar = ext.extinguish(lambda_r, Ebv=ebv)
             self.g["mag"] -= -2.5 * np.log10(Ag)
             self.r["mag"] -= -2.5 * np.log10(Ar)
         self._preprocess()

@@ -29,6 +29,7 @@ from .utils import (
     get_cache_key,
     load_cached_dataframe,
     cache_dataframe,
+    get_cache_dir,
 )
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
