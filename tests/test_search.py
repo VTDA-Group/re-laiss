@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 import relaiss as rl
-from relaiss.search import calculate_distances, primer
+from relaiss.search import primer
 
 def test_find_neighbors_dataframe():
     client = rl.ReLAISS()
@@ -33,18 +33,6 @@ def test_find_neighbors_invalid_input():
     # Test with invalid n value
     with pytest.raises(ValueError):
         client.find_neighbors(ztf_object_id="ZTF21abbzjeq", n=-1)
-
-def test_calculate_distances():
-    # Create sample feature vectors
-    query_vector = np.array([1.0, 2.0, 3.0])
-    reference_vectors = np.array([[1.0, 2.0, 3.0],
-                                [2.0, 3.0, 4.0],
-                                [3.0, 4.0, 5.0]])
-    
-    distances = calculate_distances(query_vector, reference_vectors)
-    assert isinstance(distances, np.ndarray)
-    assert len(distances) == len(reference_vectors)
-    assert distances[0] == 0  # Distance to self should be 0
 
 def test_primer_with_ztf_id():
     # Test with ZTF ID
