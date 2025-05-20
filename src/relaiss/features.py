@@ -80,7 +80,7 @@ def old_build_dataset_bank(
 
     if not building_for_AD:
         print(
-            f"There are {len(raw_df_bank) - len(test_dataset_bank)} of {len(raw_df_bank)} rows in the timeseries dataframe with 1 or more NA features."
+            f"There are {len(raw_df_bank) - len(test_dataset_bank)} of {len(raw_df_bank)} rows in the dataframe with 1 or more NA features."
         )
         if len(nan_cols) != 0:
             print(
@@ -893,9 +893,6 @@ class SupernovaFeatureExtractor:
         # Recalculate t0 based on filtered times
         if len(self.g["time"]) == 0 or len(self.r["time"]) == 0:
             pass
-            # print(
-            #     f"Warning: No data left in g or r band after filtering for object: {self.ztf_object_id}. Skipping."
-            # )
         else:
             new_time_offset = min(self.g["time"].min(), self.r["time"].min())
 
@@ -979,7 +976,6 @@ class SupernovaFeatureExtractor:
         t, idx = np.unique(t, return_index=True)
         m = m[idx]
         if len(m) < 3 or np.ptp(m) < 0.2:
-            # print("Warning: Not enough valid data or insufficient variability to compute core stats.")
             return np.nan, np.nan, np.nan, np.nan, np.nan
         peak_idx = np.argmin(m)
         peak_mag = m[peak_idx]
@@ -1026,7 +1022,6 @@ class SupernovaFeatureExtractor:
             or ``None`` when bands lack overlap.
         """
         if len(self.g["time"]) < 2 or len(self.r["time"]) < 2:
-            # print("Warning: Not enough data in g or r band to compute color features.")
             return None
 
         def dedup(t, m):
@@ -1039,7 +1034,6 @@ class SupernovaFeatureExtractor:
         t_max = min(self.g["time"].max(), self.r["time"].max())
 
         if t_max <= t_min or np.isnan(t_min) or np.isnan(t_max):
-            # print("Warning: No overlapping time range for g and r bands.")
             return None
         t_grid = np.linspace(t_min, t_max, 100)
         g_time, g_mag = dedup(self.g["time"], self.g["mag"])
@@ -1056,7 +1050,6 @@ class SupernovaFeatureExtractor:
                 tpg, r_time, r_mag
             )
         except Exception:
-            # print(f"Warning: Could not compute g-r at g-band peak due to: {e}")
             gr_at_gpeak = np.nan
         return np.mean(color), gr_at_gpeak, mean_rate
 
@@ -1095,7 +1088,6 @@ class SupernovaFeatureExtractor:
             *(n_peaks, Δt, Δmag, prominence₂, width₂)* with NaNs when <2 peaks.
         """
         if np.ptp(band["mag"]) < 0.5:
-            # print("Warning: Insufficient variability to identify peak structure.")
             return 0, np.nan, np.nan, np.nan, np.nan
         t_uniform = np.linspace(band["time"].min(), band["time"].max(), 300)
         mag_interp = interp1d(
@@ -1173,9 +1165,6 @@ class SupernovaFeatureExtractor:
             either band lacks data after pre-processing.
         """
         if len(self.g["time"]) == 0 or len(self.r["time"]) == 0:
-            # print(
-            #     f"Warning: No data left in g or r band after filtering for object: {self.ztf_object_id}. Skipping."
-            # )
             return None
 
         g_core = self._core_stats(self.g)
@@ -1190,7 +1179,6 @@ class SupernovaFeatureExtractor:
         r_rise_curv, r_decline_curv = self._local_curvature_features(self.r)
 
         if color_feats is None:
-            # print("Warning: Color features could not be computed. Defaulting to NaN.")
             color_feats = (np.nan, np.nan, np.nan)
         g_peak_struct = self._peak_structure(self.g)
         r_peak_struct = self._peak_structure(self.r)

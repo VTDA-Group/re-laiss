@@ -298,8 +298,6 @@ class ReLAISS:
         """
         start_time = time.time()
 
-        print("QUERYING on features:", self.lc_features + self.host_features)
-
         annoy_index_file_stem = self.index_stem
         dataset_bank = Path(path_to_dataset_bank or self.bank_csv)
 
@@ -323,7 +321,6 @@ class ReLAISS:
             raise ValueError("Neighbor number must be a nonzero integer. Abort!")
         else:
             print(f"Requesting {n} neighbors from Annoy")
-        print(f"Annoy index contains {self._index.get_n_items()} items")
 
         plot_label = (
             f"{primer_dict['lc_ztf_id'] if primer_dict['lc_ztf_id'] is not None else 'theorized_lc'}"
@@ -358,9 +355,6 @@ class ReLAISS:
         
         for locus_feat_arr in true_and_mc_feat_arrs_l:
             scaled = self.scaler.transform([locus_feat_arr])[0]
-            print("\nQuery vector before weighting:")
-            print(f"Shape: {scaled.shape}")
-            print(f"Values: {scaled}")
             
             if not self.use_pca:
                 # Upweight lightcurve features before PCA
@@ -368,9 +362,6 @@ class ReLAISS:
                 scaled = scaled.reshape(1, -1)  # Make it 2D
                 scaled[:, :n_lc] *= weight_lc_feats_factor
                 scaled = scaled[0]  # Back to 1D
-                print("\nQuery vector after weighting:")
-                print(f"Shape: {scaled.shape}")
-                print(f"Values: {scaled}")
             
             if self.use_pca:
                 # Transform the scaled locus_feat_arr using the same PCA model
@@ -380,14 +371,7 @@ class ReLAISS:
                 # pca needs to be fit first to the same data as trained
                 trained_PCA_feat_arr_scaled_pca = pca.fit_transform(bank_feat_arr_scaled)
                 scaled = pca.transform([scaled])[0]
-                print("\nQuery vector after PCA:")
-                print(f"Shape: {scaled.shape}")
-                print(f"Values: {scaled}")
             
-            print("\nANNOY index details:")
-            print(f"Dimension: {len(scaled)}")
-            print(f"Number of items: {self._index.get_n_items()}")
-            print(f"Number of trees: {self._index.get_n_trees()}")
             
             # Get neighbors for this feature array
             idxs, dists = self._index.get_nns_by_vector(
@@ -409,9 +393,7 @@ class ReLAISS:
         top_n_neighbors = sorted_neighbors[:n+1]
         idxs = [idx for idx, _ in top_n_neighbors]
         dists = [dist for _, dist in top_n_neighbors]
-        print(f"ANNOY returned {len(idxs)} neighbors")
-        print(f"Indices: {idxs}")
-        print(f"Distances: {dists}")
+
         # Remove input transient if it's in the results
         input_idx = None
         for i, idx in enumerate(idxs):
@@ -422,12 +404,11 @@ class ReLAISS:
             print(f"\nFound input transient at index {input_idx}, removing it...")
             del idxs[input_idx]
             del dists[input_idx]
-            print("First neighbor is input transient, so it will be excluded. Final neighbor count will be one less than expected.")
+
         # Always return n neighbors
         idxs = idxs[:n]
         dists = dists[:n]
-        print(f"\nFinal number of neighbors: {len(idxs)}")
-        print(f"Final distances: {dists}")
+
         ann_end_time = time.time()
         ann_elapsed_time = ann_end_time - start_time
         elapsed_time = time.time() - start_time
@@ -619,12 +600,13 @@ class ReLAISS:
         # Define ALeRCE links for each neighbor
         ann_alerce_links = [f"https://alerce.online/object/{ztf_id}" for ztf_id in neighbor_ztfids]
         
-        for al, iau_name, spec_cls, z, dist in zip(
-            ann_alerce_links, tns_ann_names, tns_ann_classes, tns_ann_zs, dists
+        for al, iau_name, spec_cls, z, dist, neighbor_ztfid in zip(
+            ann_alerce_links, tns_ann_names, tns_ann_classes, tns_ann_zs, dists, neighbor_ztfids
         ):
             print(f"ANN={neighbor_num}: {al} {iau_name} {spec_cls}, {z}")
             neighbor_dict = {
                 "input_ztf_id": primer_dict["lc_ztf_id"],
+                "neighbor_ztf_id": neighbor_ztfid,
                 "input_swapped_host_ztf_id": primer_dict["host_ztf_id"],
                 "neighbor_num": neighbor_num,
                 "ztf_link": al,

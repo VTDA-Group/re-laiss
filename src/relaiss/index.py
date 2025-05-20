@@ -88,8 +88,6 @@ def build_indexed_sample(
             )
     data_bank = data_bank.set_index("ztf_object_id")
 
-    print("INDEXING on features:", lc_features + host_features)
-
     # Ensure proper user input of features
     num_lc_features   = len(lc_features)
     num_host_features = len(host_features)
@@ -108,13 +106,6 @@ def build_indexed_sample(
     data_bank = data_bank[lc_features + host_features]
     data_bank = data_bank.dropna()
     
-    print(f"\nIndex building - Feature statistics before scaling:")
-    print(f"Number of samples: {len(data_bank)}")
-    print(f"Feature means: {data_bank.mean().to_dict()}")
-    print(f"Feature stds: {data_bank.std().to_dict()}")
-    print(f"Any NaN values: {data_bank.isna().any().any()}")
-    print(f"Any infinite values: {np.isinf(data_bank.values).any()}")
-
     # Scale dataset bank features
     feat_arr = np.array(data_bank)
     idx_arr = np.array(data_bank.index)
@@ -122,19 +113,10 @@ def build_indexed_sample(
     scaler = scaler.fit(feat_arr)
     feat_arr_scaled = scaler.transform(feat_arr)
     
-    print(f"\nIndex building - Feature statistics after scaling:")
-    print(f"Scaled feature means: {np.mean(feat_arr_scaled, axis=0)}")
-    print(f"Scaled feature stds: {np.std(feat_arr_scaled, axis=0)}")
-    print(f"Any NaN values in scaled features: {np.isnan(feat_arr_scaled).any()}")
-    print(f"Any infinite values in scaled features: {np.isinf(feat_arr_scaled).any()}")
-
     if not use_pca:
         # Upweight lightcurve features
         num_lc_feats = len(lc_features)
         feat_arr_scaled[:, :num_lc_feats] *= weight_lc_feats_factor
-        print(f"\nIndex building - After LC feature weighting (factor={weight_lc_feats_factor}):")
-        print(f"Weighted feature means: {np.mean(feat_arr_scaled, axis=0)}")
-        print(f"Weighted feature stds: {np.std(feat_arr_scaled, axis=0)}")
         # Save the weighted feature array
         weighted_feat_arr = feat_arr_scaled.copy()
 
@@ -146,10 +128,7 @@ def build_indexed_sample(
         random_seed = 88
         pcaModel = PCA(n_components=num_pca_components, random_state=random_seed)
         feat_arr_scaled_pca = pcaModel.fit_transform(feat_arr_scaled)
-        print(f"\nIndex building - After PCA:")
-        print(f"PCA feature means: {np.mean(feat_arr_scaled_pca, axis=0)}")
-        print(f"PCA feature stds: {np.std(feat_arr_scaled_pca, axis=0)}")
-        print(f"Explained variance ratio: {pcaModel.explained_variance_ratio_}")
+        print(f"Explained variance ratio with PCA: {pcaModel.explained_variance_ratio_}")
 
     # Save PCA and non-PCA index arrays to binary files
     os.makedirs(path_to_index_directory, exist_ok=True)
