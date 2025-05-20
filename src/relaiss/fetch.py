@@ -9,6 +9,12 @@ from astropy.io import fits
 from PIL import Image
 
 from .features import extract_lc_and_host_features
+from .utils import (
+    compute_dataframe_hash,
+    get_cache_key,
+    load_cached_dataframe,
+    cache_dataframe,
+)
 
 
 def get_TNS_data(ztf_id):
@@ -172,6 +178,27 @@ def get_timeseries_df(
     pandas.DataFrame
         Feature rows ready for indexing or AD.
     """
+    # Generate cache key based on input parameters
+    cache_params = {
+        'ztf_id': ztf_id,
+        'path_to_sfd_folder': str(path_to_sfd_folder),
+        'path_to_dataset_bank': str(path_to_dataset_bank) if path_to_dataset_bank else None,
+        'building_for_AD': building_for_AD,
+        'swapped_host': swapped_host,
+    }
+
+    if theorized_lightcurve_df is not None:
+        cache_params['theorized_df_hash'] = compute_dataframe_hash(theorized_lightcurve_df)
+
+    cache_key = get_cache_key('timeseries', **cache_params)
+
+    # Try to load from cache
+    cached_df = load_cached_dataframe(cache_key)
+    if cached_df is not None:
+        if not building_for_AD:
+            print("Loading timeseries features from cache...")
+        return cached_df
+
     if theorized_lightcurve_df is not None:
         print("Extracting full lightcurve features for theorized lightcurve...")
         timeseries_df = extract_lc_and_host_features(
@@ -185,33 +212,29 @@ def get_timeseries_df(
             store_csv=save_timeseries,
             swapped_host=swapped_host,
         )
-        return timeseries_df
-
-    # Check if timeseries already made (but must rebuild for AD regardless)
-    if (
-        os.path.exists(f"{path_to_timeseries_folder}/{ztf_id}_timeseries.csv")
-        and not building_for_AD
-    ):
-        timeseries_df = pd.read_csv(
-            f"{path_to_timeseries_folder}/{ztf_id}_timeseries.csv"
-        )
-        print(f"Timeseries dataframe for {ztf_id} is already made. Continue!\n")
     else:
-        # If timeseries is not made or building for AD, create timeseries by extracting features
-        if not building_for_AD:
-            print(
-                f"Timeseries dataframe does not exist. Re-extracting lightcurve and host features for {ztf_id}."
+        # Check if CSV exists in timeseries folder
+        csv_path = os.path.join(path_to_timeseries_folder, f"{ztf_id}_timeseries.csv")
+        if os.path.exists(csv_path):
+            print(f"Loading timeseries from {csv_path}...")
+            timeseries_df = pd.read_csv(csv_path)
+        else:
+            print("Extracting full lightcurve features...")
+            timeseries_df = extract_lc_and_host_features(
+                ztf_id=ztf_id,
+                path_to_timeseries_folder=path_to_timeseries_folder,
+                path_to_sfd_folder=path_to_sfd_folder,
+                path_to_dataset_bank=path_to_dataset_bank,
+                show_lc=False,
+                show_host=True,
+                store_csv=save_timeseries,
+                building_for_AD=building_for_AD,
+                swapped_host=swapped_host,
             )
-        timeseries_df = extract_lc_and_host_features(
-            ztf_id=ztf_id,
-            theorized_lightcurve_df=theorized_lightcurve_df,
-            path_to_timeseries_folder=path_to_timeseries_folder,
-            path_to_sfd_folder=path_to_sfd_folder,
-            path_to_dataset_bank=path_to_dataset_bank,
-            show_lc=False,
-            show_host=True,
-            store_csv=save_timeseries,
-            building_for_AD=building_for_AD,
-            swapped_host=swapped_host,
-        )
+
+    # Cache the processed DataFrame
+    if not building_for_AD:
+        print("Caching timeseries features...")
+    cache_dataframe(timeseries_df, cache_key)
+
     return timeseries_df

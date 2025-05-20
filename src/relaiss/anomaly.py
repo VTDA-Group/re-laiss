@@ -15,78 +15,102 @@ from .fetch import get_timeseries_df, get_TNS_data
 def train_AD_model(
     lc_features,
     host_features,
-    path_to_dataset_bank,
+    path_to_dataset_bank=None,
+    preprocessed_df=None,
     path_to_models_directory="../models",
     n_estimators=500,
     contamination=0.02,
     max_samples=1024,
     force_retrain=False,
 ):
-    """Train or load an Isolation-Forest anomaly-detection model.
-
+    """Train an Isolation Forest model for anomaly detection.
+    
     Parameters
     ----------
-    lc_features, host_features : list[str]
-        Feature columns used by the model.
-    path_to_dataset_bank : str | Path
-    path_to_models_directory : str | Path
-    n_estimators, contamination, max_samples : see *pyod.models.IForest*
+    lc_features : list[str]
+        Names of lightcurve features to use.
+    host_features : list[str]
+        Names of host galaxy features to use.
+    path_to_dataset_bank : str | Path | None, optional
+        Path to raw dataset bank CSV. Not used if preprocessed_df is provided.
+    preprocessed_df : pandas.DataFrame | None, optional
+        Pre-processed dataframe with imputed features. If provided, this is used
+        instead of loading and processing the raw dataset bank.
+    path_to_models_directory : str | Path, default "../models"
+        Directory to save trained models.
+    n_estimators : int, default 500
+        Number of trees in the Isolation Forest.
+    contamination : float, default 0.02
+        Expected fraction of outliers in the dataset.
+    max_samples : int, default 1024
+        Number of samples to draw for each tree.
     force_retrain : bool, default False
-        Ignore cached model and retrain.
-
+        Whether to retrain even if a saved model exists.
+        
     Returns
     -------
     str
-        Filesystem path to the saved ``.pkl`` pipeline.
+        Path to the saved model file.
+        
+    Notes
+    -----
+    Either path_to_dataset_bank or preprocessed_df must be provided.
+    If both are provided, preprocessed_df takes precedence.
     """
-    feature_names = lc_features + host_features
-    df_bank_path = path_to_dataset_bank
-    model_dir = path_to_models_directory
-    model_name = f"IForest_n{n_estimators}_c{contamination}_ms{max_samples}_lc{len(lc_features)}_host{len(host_features)}.pkl"
-
-    os.makedirs(model_dir, exist_ok=True)
-
-    print("Checking if AD model exists...")
-
-    # If model already exists, don't retrain
-    if os.path.exists(os.path.join(model_dir, model_name)) and not force_retrain:
-        print("Model already exists →", os.path.join(model_dir, model_name))
-        return os.path.join(model_dir, model_name)
-
-    print("AD model does not exist. Training and saving new model.")
-
+    from sklearn.ensemble import IsolationForest
+    import joblib
+    import os
+    
+    if preprocessed_df is None and path_to_dataset_bank is None:
+        raise ValueError("Either path_to_dataset_bank or preprocessed_df must be provided")
+    
+    # Create models directory if it doesn't exist
+    os.makedirs(path_to_models_directory, exist_ok=True)
+    
+    # Generate model filename based on parameters
+    model_name = f"IForest_n={n_estimators}_c={contamination}_m={max_samples}.pkl"
+    model_path = os.path.join(path_to_models_directory, model_name)
+    
+    # Check if model already exists
+    if os.path.exists(model_path) and not force_retrain:
+        print(f"Loading existing model from {model_path}")
+        return model_path
+    
+    print("Training new Isolation Forest model...")
+    
+    # Get features from preprocessed dataframe or load and process raw data
+    if preprocessed_df is not None:
+        print("Using provided preprocessed dataframe")
+        df = preprocessed_df
+    else:
+        print("Loading and preprocessing dataset bank...")
+        from .features import build_dataset_bank
+        raw_df = pd.read_csv(path_to_dataset_bank)
+        df = build_dataset_bank(
+            raw_df,
+            building_entire_df_bank=True,
+            building_for_AD=True
+        )
+    
+    # Extract features
+    feature_cols = lc_features + host_features
+    X = df[feature_cols].values
+    
     # Train model
-    df = pd.read_csv(df_bank_path, low_memory=False)
-    X = df[feature_names].values
-
-    pipeline = Pipeline(
-        steps=[
-            ("scaler", StandardScaler(with_mean=True, with_std=True)),
-            (
-                "clf",
-                IForest(
-                    n_estimators=n_estimators,
-                    contamination=contamination,
-                    max_samples=max_samples,
-                    behaviour="new",
-                    random_state=42,
-                ),
-            ),
-        ]
+    model = IsolationForest(
+        n_estimators=n_estimators,
+        contamination=contamination,
+        max_samples=max_samples,
+        random_state=42,
+        n_jobs=-1
     )
-    pipeline.fit(X)
-
+    model.fit(X)
+    
     # Save model
-    os.makedirs(model_dir, exist_ok=True)
-    with open(os.path.join(model_dir, model_name), "wb") as f:
-        pickle.dump(pipeline, f)
-
-    print(
-        "Isolation Forest model trained and saved →",
-        os.path.join(model_dir, model_name),
-    )
-
-    return os.path.join(model_dir, model_name)
+    joblib.dump(model, model_path)
+    print(f"Saved trained model to {model_path}")
+    
+    return model_path
 
 
 def anomaly_detection(

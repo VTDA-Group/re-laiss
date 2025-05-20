@@ -21,7 +21,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.impute import KNNImputer, SimpleImputer
 
 from . import constants
-from .utils import suppress_output
+from .utils import suppress_output, compute_dataframe_hash, get_cache_key, load_cached_dataframe, cache_dataframe
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -171,9 +171,9 @@ def old_build_dataset_bank(
 def build_dataset_bank(
     raw_df_bank,
     av_in_raw_df_bank=False,
-    path_to_sfd_folder='./',
+    path_to_sfd_folder=None,
     theorized=False,
-    path_to_dataset_bank='./',
+    path_to_dataset_bank=None,
     building_entire_df_bank=False,
     building_for_AD=False,
 ):
@@ -207,6 +207,28 @@ def build_dataset_bank(
     pandas.DataFrame
         Fully hydrated feature table indexed by ``ztf_object_id``.
     """
+    # Generate cache key based on input parameters
+    df_hash = compute_dataframe_hash(raw_df_bank)
+    cache_key = get_cache_key(
+        df_hash,
+        av_in_raw_df_bank=av_in_raw_df_bank,
+        path_to_sfd_folder=str(path_to_sfd_folder),
+        theorized=theorized,
+        path_to_dataset_bank=str(path_to_dataset_bank) if path_to_dataset_bank else None,
+        building_entire_df_bank=building_entire_df_bank,
+        building_for_AD=building_for_AD,
+    )
+
+    # Try to load from cache
+    cached_df = load_cached_dataframe(cache_key)
+    if cached_df is not None:
+        if not building_for_AD:
+            print("Loading preprocessed features from cache...")
+        return cached_df
+
+    if not building_for_AD:
+        print("Processing features (this may take a while)...")
+
     raw_lc_features = constants.lc_features_const.copy()
     raw_host_features = constants.raw_host_features_const.copy()
 
@@ -249,7 +271,7 @@ def build_dataset_bank(
 
     if not building_for_AD:
         print(
-            f"There are {len(raw_df_bank) - len(test_dataset_bank)} of {len(raw_df_bank)} rows in the timeseries dataframe with 1 or more NA features."
+            f"There are {len(raw_df_bank) - len(test_dataset_bank)} of {len(raw_df_bank)} rows in the dataframe with 1 or more NA features."
         )
         if len(nan_cols) != 0:
             print(
@@ -334,6 +356,11 @@ def build_dataset_bank(
         )
 
     final_df_bank = wip_dataset_bank
+
+    # Cache the processed DataFrame
+    if not building_for_AD:
+        print("Caching preprocessed features...")
+    cache_dataframe(final_df_bank, cache_key)
 
     return final_df_bank
 

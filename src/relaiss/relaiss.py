@@ -24,6 +24,12 @@ import joblib
 import requests
 import shutil
 from urllib.parse import urljoin
+from .utils import (
+    compute_dataframe_hash,
+    get_cache_key,
+    load_cached_dataframe,
+    cache_dataframe,
+)
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
 SFD_URL = "https://github.com/kbarbary/sfddata/raw/refs/heads/master/"
@@ -94,6 +100,8 @@ class ReLAISS:
         Array of ZTF IDs corresponding to the index.
     use_pca : bool
         Whether PCA is being used for dimensionality reduction.
+    hydrated_bank : pd.DataFrame
+        The preprocessed dataframe with all features imputed and engineered.
     """
     
     def __init__(self) -> None:
@@ -113,6 +121,24 @@ class ReLAISS:
         self._index: annoy.AnnoyIndex
         self._ids: np.ndarray
         self.use_pca: bool
+        self.hydrated_bank: pd.DataFrame
+
+    def get_preprocessed_dataframe(self) -> pd.DataFrame:
+        """Get the preprocessed dataframe with all features imputed and engineered.
+        
+        Returns
+        -------
+        pandas.DataFrame
+            The preprocessed dataframe with all features imputed and engineered.
+            
+        Raises
+        ------
+        AttributeError
+            If load_reference() hasn't been called yet.
+        """
+        if not hasattr(self, 'hydrated_bank'):
+            raise AttributeError("No preprocessed dataframe available. Call load_reference() first.")
+        return self.hydrated_bank.copy()
 
     def load_reference(
         self,
@@ -143,6 +169,12 @@ class ReLAISS:
             PCA dimensionality; *None* keeps 99 % variance.
         """
         from . import constants as _c
+        from .utils import (
+            compute_dataframe_hash,
+            get_cache_key,
+            load_cached_dataframe,
+            cache_dataframe,
+        )
 
         # Download SFD files if they don't exist
         download_sfd_files(path_to_sfd_folder)
@@ -158,47 +190,94 @@ class ReLAISS:
             gdown.download(url, str(bank_path), quiet=False)
 
         raw_df_bank = pd.read_csv(bank_path)
-        # Create a new path for the preprocessed data
-        preprocessed_bank_path = bank_path.parent / f"preprocessed_{bank_path.name}"
-        print(f"Preprocessing data and saving to {preprocessed_bank_path}")
         
-        # Rename ZTFID to ztf_object_id if it exists
-        if 'ZTFID' in raw_df_bank.columns:
-            raw_df_bank = raw_df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
-        
-        #hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True,path_to_sfd_folder=path_to_sfd_folder)
-        hydrated_bank = build_dataset_bank(raw_df_bank,building_entire_df_bank=True,path_to_sfd_folder=path_to_sfd_folder)
-        hydrated_bank.to_csv(preprocessed_bank_path, index=False)
+        # Generate cache key for preprocessed data
+        cache_params = {
+            'bank_hash': compute_dataframe_hash(raw_df_bank),
+            'path_to_sfd_folder': str(path_to_sfd_folder),
+            'lc_features': lc_features,
+            'host_features': host_features,
+            'weight_lc': weight_lc,
+            'use_pca': use_pca,
+            'num_pca_components': num_pca_components,
+        }
+        cache_key = get_cache_key('reference_bank', **cache_params)
 
-        index_stem, scaler, feat_arr_scaled = build_indexed_sample(
-            data_bank=hydrated_bank,
-            lc_features=lc_features,
-            host_features=host_features,
-            use_pca=use_pca,
-            num_pca_components=num_pca_components,
-            num_trees=1000,
-            path_to_index_directory=str(REFERENCE_DIR),
-            weight_lc_feats_factor=weight_lc,
-            force_recreation_of_index=True
+        # Try to load preprocessed data from cache
+        hydrated_bank = load_cached_dataframe(cache_key)
+        if hydrated_bank is None:
+            print("Preprocessing reference bank (this may take a while)...")
+            
+            # Rename ZTFID to ztf_object_id if it exists
+            if 'ZTFID' in raw_df_bank.columns:
+                raw_df_bank = raw_df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+            
+            hydrated_bank = build_dataset_bank(
+                raw_df_bank,
+                building_entire_df_bank=True,
+                path_to_sfd_folder=path_to_sfd_folder
+            )
+            
+            # Cache the preprocessed data
+            print("Caching preprocessed reference bank...")
+            cache_dataframe(hydrated_bank, cache_key)
+        else:
+            print("Loading preprocessed reference bank from cache...")
+
+        # Store the hydrated bank as an attribute
+        self.hydrated_bank = hydrated_bank
+
+        # Generate cache key for index files
+        index_cache_params = {
+            **cache_params,
+            'hydrated_hash': compute_dataframe_hash(hydrated_bank),
+            'num_trees': 1000,  # Fixed parameter from build_indexed_sample
+        }
+        index_cache_key = get_cache_key('reference_index', **index_cache_params)
+        index_dir = Path(get_cache_dir()) / 'indices'
+        index_dir.mkdir(exist_ok=True)
+        index_stem = index_dir / index_cache_key
+
+        # Check if index files exist
+        index_files_exist = all(
+            (index_stem.parent / f"{index_stem.name}{ext}").exists()
+            for ext in [".ann", "_idx_arr.npy", "_scaler.joblib"]
         )
+
+        if not index_files_exist:
+            print("Building search index...")
+            index_stem, scaler, feat_arr_scaled = build_indexed_sample(
+                data_bank=hydrated_bank,
+                lc_features=lc_features,
+                host_features=host_features,
+                use_pca=use_pca,
+                num_pca_components=num_pca_components,
+                num_trees=1000,
+                path_to_index_directory=str(index_dir),
+                weight_lc_feats_factor=weight_lc,
+                force_recreation_of_index=True
+            )
+        else:
+            print("Loading existing search index...")
+            scaler = joblib.load(str(index_stem) + "_scaler.joblib")
+            feat_arr_scaled = np.load(str(index_stem) + "_feat_arr_scaled.npy")
 
         pca = None
         if use_pca:
-            print("Using pca...")
-            pca = PCA(num_pca_components=num_pca_components).fit(
-                scaler.fit_transform(hydrated_bank[lc_features + host_features])
-            )
+            print("Using PCA...")
+            pca_path = str(index_stem) + "_pca.joblib"
+            if os.path.exists(pca_path):
+                print(f"Loading saved PCA model from {pca_path}")
+                pca = joblib.load(pca_path)
+            else:
+                print("Training new PCA model...")
+                pca = PCA(n_components=num_pca_components).fit(
+                    scaler.fit_transform(hydrated_bank[lc_features + host_features])
+                )
+                joblib.dump(pca, pca_path)
 
-        self.index_stem = Path(index_stem)
-        # Load the saved scaler first
-        scaler_path = str(index_stem) + "_scaler.joblib"
-        if os.path.exists(scaler_path):
-            print(f"Loading saved scaler from {scaler_path}")
-            self.scaler = joblib.load(scaler_path)
-        else:
-            print(f"Warning: No saved scaler found at {scaler_path}, using scaler from build_indexed_sample")
-            self.scaler = scaler
-            
+        self.index_stem = index_stem
+        self.scaler = scaler
         self.pca = pca
         self.use_pca = bool(pca)
         self.lc_features = lc_features
@@ -216,15 +295,6 @@ class ReLAISS:
         print(f"Loaded index with {self._index.get_n_items()} items")
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
         print(f"Loaded {len(self._ids)} IDs")
-        
-        # Load the saved PCA model if using PCA
-        if self.use_pca:
-            pca_path = str(self.index_stem) + "_pca.joblib"
-            if os.path.exists(pca_path):
-                print(f"Loading saved PCA model from {pca_path}")
-                self.pca = joblib.load(pca_path)
-            else:
-                print(f"Warning: No saved PCA model found at {pca_path}")
 
     def find_neighbors(
         self,
@@ -550,17 +620,42 @@ class ReLAISS:
             # Plot hosts
             print("\nGenerating hosts grid plot...")
 
-            df_bank = pd.read_csv(dataset_bank, index_col="ztf_object_id")
+            # Read the dataset bank and handle column name variations
+            df_bank = pd.read_csv(dataset_bank)
+            if 'ZTFID' in df_bank.columns:
+                df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+            df_bank = df_bank.set_index('ztf_object_id')
 
             hosts_to_plot = neighbor_ztfids.copy()
             host_ra_l, host_dec_l = [], []
 
             for ztfid in hosts_to_plot:
-                host_ra, host_dec = (
-                    df_bank.loc[ztfid].host_ra,
-                    df_bank.loc[ztfid].host_dec,
-                )
-                host_ra_l.append(host_ra), host_dec_l.append(host_dec)
+                try:
+                    # Try both possible column name variations
+                    if 'host_ra' in df_bank.columns and 'host_dec' in df_bank.columns:
+                        host_ra, host_dec = (
+                            df_bank.loc[ztfid].host_ra,
+                            df_bank.loc[ztfid].host_dec,
+                        )
+                    elif 'raMean' in df_bank.columns and 'decMean' in df_bank.columns:
+                        host_ra, host_dec = (
+                            df_bank.loc[ztfid].raMean,
+                            df_bank.loc[ztfid].decMean,
+                        )
+                    else:
+                        print(f"Warning: Could not find host coordinates for {ztfid}")
+                        continue
+                    
+                    host_ra_l.append(host_ra)
+                    host_dec_l.append(host_dec)
+                except KeyError:
+                    print(f"Warning: Could not find host data for {ztfid}")
+                    hosts_to_plot.remove(ztfid)
+                    continue
+
+            if not hosts_to_plot:
+                print("No valid hosts found for plotting")
+                return
 
             # Add input host for plotting
             if primer_dict["host_ztf_id"] is None:
