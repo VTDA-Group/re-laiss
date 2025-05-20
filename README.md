@@ -33,7 +33,8 @@ neigh = client.find_neighbors(
         path_to_figure_directory='./figures'
     )
 
-print(neigh[["ztfid", "distance"]])
+# print closest neighbors and their distances
+print(neigh[["iau_name", "dist"]])
 ```
 
 # Citation
