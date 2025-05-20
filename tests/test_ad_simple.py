@@ -122,7 +122,7 @@ def test_anomaly_detection_simplified(tmp_path):
             lc_features=lc_features,
             host_features=host_features,
             path_to_timeseries_folder=str(tmp_path),
-            path_to_sfd_data_folder=None,  # This will be ignored due to our mocking
+            path_to_sfd_folder=None,  # This will be ignored due to our mocking
             path_to_dataset_bank=None,  # This will be ignored due to our mocking
             path_to_models_directory=str(model_dir),
             path_to_figure_directory=str(figure_dir),

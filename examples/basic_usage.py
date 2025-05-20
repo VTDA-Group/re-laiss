@@ -6,6 +6,7 @@ This script demonstrates the basic functionality of reLAISS including:
 - Running nearest neighbor search
 - Using Monte Carlo simulations
 - Adjusting feature weights
+- Basic anomaly detection
 """
 
 import os
@@ -15,6 +16,8 @@ def main():
     # Create output directories
     os.makedirs('./figures', exist_ok=True)
     os.makedirs('./sfddata-master', exist_ok=True)
+    os.makedirs('./models', exist_ok=True)
+    os.makedirs('./timeseries', exist_ok=True)
     
     # Initialize the client
     client = rl.ReLAISS()
@@ -55,7 +58,7 @@ def main():
     neighbors_df = client.find_neighbors(
         ztf_object_id='ZTF21abbzjeq',  # Using the test transient
         n=5,
-        num_mc_simulations=20,  # Number of Monte Carlo simulations
+        num_sims=20,  # Number of Monte Carlo simulations
         weight_lc_feats_factor=3.0,  # Up-weight lightcurve features
         plot=True,
         save_figures=True,
@@ -63,6 +66,44 @@ def main():
     )
     print("\nNearest neighbors with MC simulations:")
     print(neighbors_df)
+    
+    # Example 4: Basic anomaly detection
+    print("\nExample 4: Basic anomaly detection")
+    from relaiss.anomaly import train_AD_model, anomaly_detection
+    
+    # First, train an anomaly detection model
+    print("Training anomaly detection model...")
+    model_path = train_AD_model(
+        lc_features=client.lc_features,
+        host_features=client.host_features,
+        path_to_dataset_bank=client.bank_csv,
+        path_to_sfd_folder='./sfddata-master',
+        path_to_models_directory="./models",
+        n_estimators=100,  # Using smaller value for faster execution
+        contamination=0.02,  # Expected proportion of anomalies
+        max_samples=256,  # Max samples per tree
+        force_retrain=False  # Only retrain if model doesn't exist
+    )
+    print(f"Anomaly detection model saved to: {model_path}")
+    
+    # Now, run anomaly detection on a specific transient
+    print("\nRunning anomaly detection...")
+    anomaly_detection(
+        transient_ztf_id="ZTF21abbzjeq",  # Same test transient
+        lc_features=client.lc_features,
+        host_features=client.host_features,
+        path_to_timeseries_folder="./timeseries",
+        path_to_sfd_folder='./sfddata-master',
+        path_to_dataset_bank=client.bank_csv,
+        path_to_models_directory="./models",
+        path_to_figure_directory="./figures",
+        save_figures=True,
+        n_estimators=100,
+        contamination=0.02,
+        max_samples=256,
+        force_retrain=False
+    )
+    print("Anomaly detection figures saved to ./figures/AD/")
 
 if __name__ == "__main__":
     main() 

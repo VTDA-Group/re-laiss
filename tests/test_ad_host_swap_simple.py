@@ -80,7 +80,7 @@ def test_ad_host_swap_simple(tmp_path):
             lc_features=lc_features,
             host_features=host_features,
             path_to_timeseries_folder=str(tmp_path),
-            path_to_sfd_data_folder=None,  # Ignored due to mocking
+            path_to_sfd_folder=None,  # Ignored due to mocking
             path_to_dataset_bank=None,  # Ignored due to mocking
             host_ztf_id_to_swap_in="ZTF19aaaaaaa",  # Swap in this host
             path_to_models_directory=str(model_dir),

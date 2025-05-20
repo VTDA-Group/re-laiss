@@ -8,6 +8,8 @@ This script demonstrates advanced features of reLAISS including:
 - Setting maximum neighbor distances
 - Tweaking ANNOY parameters
 - Making corner plots
+- Advanced anomaly detection with parameter tuning
+- Host swapping in anomaly detection
 """
 
 import os
@@ -38,6 +40,8 @@ def main():
     # Create output directories
     os.makedirs('./figures', exist_ok=True)
     os.makedirs('./sfddata-master', exist_ok=True)
+    os.makedirs('./models', exist_ok=True)
+    os.makedirs('./timeseries', exist_ok=True)
     
     # Initialize the client
     client = rl.ReLAISS()
@@ -150,6 +154,90 @@ def main():
         path_to_figure_directory='./figures',
         save_plots=True
     )
+    
+    # Example 7: Advanced anomaly detection with parameter tuning
+    print("\nExample 7: Advanced anomaly detection with parameter tuning")
+    from relaiss.anomaly import train_AD_model, anomaly_detection
+    
+    # Train models with different parameters to compare
+    print("Training anomaly detection model with default parameters...")
+    default_model_path = train_AD_model(
+        lc_features=client.lc_features,
+        host_features=client.host_features,
+        path_to_dataset_bank=client.bank_csv,
+        path_to_sfd_folder='./sfddata-master',
+        path_to_models_directory="./models",
+        n_estimators=100,
+        contamination=0.02,
+        max_samples=256,
+        force_retrain=True
+    )
+    
+    print("Training anomaly detection model with more trees...")
+    model_more_trees_path = train_AD_model(
+        lc_features=client.lc_features,
+        host_features=client.host_features,
+        path_to_dataset_bank=client.bank_csv,
+        path_to_sfd_folder='./sfddata-master',
+        path_to_models_directory="./models",
+        n_estimators=200,  # More trees
+        contamination=0.02,
+        max_samples=256,
+        force_retrain=True
+    )
+    
+    print("Training anomaly detection model with higher contamination...")
+    model_higher_contam_path = train_AD_model(
+        lc_features=client.lc_features,
+        host_features=client.host_features,
+        path_to_dataset_bank=client.bank_csv,
+        path_to_sfd_folder='./sfddata-master',
+        path_to_models_directory="./models",
+        n_estimators=100,
+        contamination=0.05,  # Higher contamination
+        max_samples=256,
+        force_retrain=True
+    )
+    
+    # Run anomaly detection with each model
+    print("\nRunning anomaly detection with default model...")
+    anomaly_detection(
+        transient_ztf_id="ZTF21abbzjeq",
+        lc_features=client.lc_features,
+        host_features=client.host_features,
+        path_to_timeseries_folder="./timeseries",
+        path_to_sfd_folder='./sfddata-master',
+        path_to_dataset_bank=client.bank_csv,
+        path_to_models_directory="./models",
+        path_to_figure_directory="./figures/AD_default",
+        save_figures=True,
+        n_estimators=100,
+        contamination=0.02,
+        max_samples=256,
+        force_retrain=False
+    )
+    
+    # Example 8: Anomaly detection with host swapping
+    print("\nExample 8: Anomaly detection with host swapping")
+    # Use the default model but swap in a different host galaxy
+    anomaly_detection(
+        transient_ztf_id="ZTF21abbzjeq",
+        lc_features=client.lc_features,
+        host_features=client.host_features,
+        path_to_timeseries_folder="./timeseries",
+        path_to_sfd_folder='./sfddata-master',
+        path_to_dataset_bank=client.bank_csv,
+        host_ztf_id_to_swap_in="ZTF21aakswqr",  # Swap in a different host
+        path_to_models_directory="./models",
+        path_to_figure_directory="./figures/AD_host_swap",
+        save_figures=True,
+        n_estimators=100,
+        contamination=0.02,
+        max_samples=256,
+        force_retrain=False
+    )
+    
+    print("Anomaly detection figures saved to ./figures/AD_default/ and ./figures/AD_host_swap/")
 
 if __name__ == "__main__":
     main() 

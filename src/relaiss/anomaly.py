@@ -5,6 +5,7 @@ import antares_client
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import joblib
 from pyod.models.iforest import IForest
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -17,6 +18,7 @@ def train_AD_model(
     host_features,
     path_to_dataset_bank=None,
     preprocessed_df=None,
+    path_to_sfd_folder=None,
     path_to_models_directory="../models",
     n_estimators=500,
     contamination=0.02,
@@ -36,6 +38,8 @@ def train_AD_model(
     preprocessed_df : pandas.DataFrame | None, optional
         Pre-processed dataframe with imputed features. If provided, this is used
         instead of loading and processing the raw dataset bank.
+    path_to_sfd_folder : str | Path | None, optional
+        Path to SFD dust maps.
     path_to_models_directory : str | Path, default "../models"
         Directory to save trained models.
     n_estimators : int, default 500
@@ -88,6 +92,7 @@ def train_AD_model(
         raw_df = pd.read_csv(path_to_dataset_bank)
         df = build_dataset_bank(
             raw_df,
+            path_to_sfd_folder=path_to_sfd_folder,
             building_entire_df_bank=True,
             building_for_AD=True
         )
@@ -118,7 +123,7 @@ def anomaly_detection(
     lc_features,
     host_features,
     path_to_timeseries_folder,
-    path_to_sfd_data_folder,
+    path_to_sfd_folder,
     path_to_dataset_bank,
     host_ztf_id_to_swap_in=None,
     path_to_models_directory="../models",
@@ -159,6 +164,7 @@ def anomaly_detection(
         lc_features,
         host_features,
         path_to_dataset_bank,
+        path_to_sfd_folder=path_to_sfd_folder,
         path_to_models_directory=path_to_models_directory,
         n_estimators=n_estimators,
         contamination=contamination,
@@ -167,8 +173,7 @@ def anomaly_detection(
     )
 
     # Load the model
-    with open(path_to_trained_model, "rb") as f:
-        clf = pickle.load(f)
+    clf = joblib.load(path_to_trained_model)
 
     # Load the timeseries dataframe
     print("\nRebuilding timeseries dataframe(s) for AD...")
@@ -176,7 +181,7 @@ def anomaly_detection(
         ztf_id=transient_ztf_id,
         theorized_lightcurve_df=None,
         path_to_timeseries_folder=path_to_timeseries_folder,
-        path_to_sfd_data_folder=path_to_sfd_data_folder,
+        path_to_sfd_folder=path_to_sfd_folder,
         path_to_dataset_bank=path_to_dataset_bank,
         save_timeseries=False,
         building_for_AD=True,
@@ -188,7 +193,7 @@ def anomaly_detection(
             ztf_id=host_ztf_id_to_swap_in,
             theorized_lightcurve_df=None,
             path_to_timeseries_folder=path_to_timeseries_folder,
-            path_to_sfd_data_folder=path_to_sfd_data_folder,
+            path_to_sfd_folder=path_to_sfd_folder,
             path_to_dataset_bank=path_to_dataset_bank,
             save_timeseries=False,
             building_for_AD=True,
@@ -271,9 +276,20 @@ def check_anom_and_plot(
     """
     anom_obj_df = timeseries_df_features_only
 
-    pred_prob_anom = 100 * clf.predict_proba(anom_obj_df)
-    pred_prob_anom[:, 0] = [round(a, 1) for a in pred_prob_anom[:, 0]]
-    pred_prob_anom[:, 1] = [round(b, 1) for b in pred_prob_anom[:, 1]]
+    # Get anomaly scores from decision_function (-ve = anomalous, +ve = normal)
+    # Convert to probabilities (0-100 scale)
+    scores = clf.decision_function(anom_obj_df)
+    # Normalize scores to [0,1] - more negative means more anomalous
+    # Convert to a format compatible with the rest of the function: [[normal_prob, anomaly_prob], ...]
+    pred_prob_anom = np.zeros((len(scores), 2))
+    for i, score in enumerate(scores):
+        # Convert decision scores to probability-like values (0-100 scale)
+        # Lower scores = more anomalous
+        anomaly_prob = 100 * (1 / (1 + np.exp(score)))  # Sigmoid function to convert to [0,100]
+        normal_prob = 100 - anomaly_prob
+        pred_prob_anom[i, 0] = round(normal_prob, 1)  # normal probability
+        pred_prob_anom[i, 1] = round(anomaly_prob, 1)  # anomaly probability
+    
     num_anom_epochs = len(np.where(pred_prob_anom[:, 1] >= anom_thresh)[0])
 
     try:

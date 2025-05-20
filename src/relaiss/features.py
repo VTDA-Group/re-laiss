@@ -243,6 +243,8 @@ def build_dataset_bank(
     # if "ztf_object_id" is the index, move it to the first column
     if raw_df_bank.index.name == "ztf_object_id":
         raw_df_bank = raw_df_bank.reset_index()
+    elif 'ZTFID' in raw_df_bank.columns.values:
+        raw_df_bank['ztf_object_id'] = raw_df_bank['ZTFID']
 
     if theorized:
         raw_features = raw_lc_features
