@@ -5,8 +5,9 @@ import relaiss as rl
 from relaiss.anomaly import anomaly_detection, train_AD_model
 import os
 import joblib
+import pickle
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 
 @pytest.fixture
 def sample_preprocessed_df():
@@ -138,8 +139,9 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
     expected_filename = f"IForest_n=100_c=0.02_m=256.pkl"
     expected_model_path = str(tmp_path / expected_filename)
     
-    # Mock the ReLAISS client
+    # Mock the ReLAISS client and build_dataset_bank to avoid SFD map initialization
     with patch('relaiss.relaiss.ReLAISS') as mock_client_class, \
+         patch('relaiss.features.build_dataset_bank', return_value=sample_preprocessed_df), \
          patch('joblib.dump') as mock_dump:
         
         # Configure mock client
@@ -300,41 +302,24 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
         'mjd_cutoff': np.linspace(58000, 58050, 20),
     })
     
-    # Mock isolation forest with predict_proba
-    class MockIsolationForest:
-        def __init__(self, n_estimators=100, contamination=0.02, max_samples=256):
-            self.n_estimators = n_estimators
-            self.contamination = contamination
-            self.max_samples = max_samples
-            
-        def predict(self, X):
-            return np.array([1 if np.random.random() > 0.1 else -1 for _ in range(len(X))])
-            
-        def decision_function(self, X):
-            return np.random.uniform(-0.5, 0.5, len(X))
-            
-        def predict_proba(self, X):
-            # Add predict_proba method that isolation forest doesn't normally have
-            n_samples = X.shape[0]
-            probas = np.zeros((n_samples, 2))
-            # Random probabilities that sum to 1 for each sample
-            probas[:, 0] = np.random.uniform(0.6, 0.9, n_samples)
-            probas[:, 1] = 1 - probas[:, 0]
-            return probas
-            
-        def fit(self, X):
-            return self
-    
-    # Save a real model file
-    real_forest = MockIsolationForest()
-    with open(model_path, 'wb') as f:
-        joblib.dump(real_forest, f)
+    # Create a mock IsolationForest object
+    mock_forest = MagicMock()
+    mock_forest.n_estimators = 100
+    mock_forest.contamination = 0.02
+    mock_forest.max_samples = 256
+    mock_forest.predict.return_value = np.array([1 if np.random.random() > 0.1 else -1 for _ in range(20)])
+    mock_forest.decision_function.return_value = np.random.uniform(-0.5, 0.5, 20)
     
     # Apply comprehensive mocking
-    with patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries_df), \
+    with patch('relaiss.features.build_dataset_bank', return_value=sample_preprocessed_df), \
+         patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries_df), \
          patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
-         patch('sklearn.ensemble.IsolationForest', return_value=MockIsolationForest()), \
+         patch('sklearn.ensemble.IsolationForest', return_value=mock_forest), \
          patch('joblib.dump'), \
+         patch('joblib.load', return_value=mock_forest), \
+         patch('pickle.load', return_value=mock_forest), \
+         patch('builtins.open', mock_open()), \
+         patch('os.path.exists', return_value=True), \
          patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
          patch('matplotlib.pyplot.savefig'), \
          patch('matplotlib.pyplot.show'), \
@@ -487,44 +472,27 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
     mock_swapped_host_df['gKronMag'] = [20.0] * 20
     mock_swapped_host_df['rKronMag'] = [19.5] * 20
     
-    # Mock the isolation forest model with predict_proba method
-    class MockIsolationForest:
-        def __init__(self, n_estimators=100, contamination=0.02, max_samples=256):
-            self.n_estimators = n_estimators
-            self.contamination = contamination
-            self.max_samples = max_samples
-            
-        def predict(self, X):
-            return np.array([1 if np.random.random() > 0.1 else -1 for _ in range(len(X))])
-            
-        def decision_function(self, X):
-            return np.random.uniform(-0.5, 0.5, len(X))
-            
-        def predict_proba(self, X):
-            # Add predict_proba method that isolation forest doesn't normally have
-            n_samples = X.shape[0]
-            probas = np.zeros((n_samples, 2))
-            # Random probabilities that sum to 1 for each sample
-            probas[:, 0] = np.random.uniform(0.6, 0.9, n_samples)
-            probas[:, 1] = 1 - probas[:, 0]
-            return probas
-            
-        def fit(self, X):
-            return self
-    
-    # Save a real model file
-    real_forest = MockIsolationForest()
-    with open(model_path, 'wb') as f:
-        joblib.dump(real_forest, f)
+    # Create a mock IsolationForest object
+    mock_forest = MagicMock()
+    mock_forest.n_estimators = 100
+    mock_forest.contamination = 0.02
+    mock_forest.max_samples = 256
+    mock_forest.predict.return_value = np.array([1 if np.random.random() > 0.1 else -1 for _ in range(20)])
+    mock_forest.decision_function.return_value = np.random.uniform(-0.5, 0.5, 20)
     
     # Create a PDF figure file to satisfy the existence check
     (ad_dir / "ZTF21abbzjeq_w_host_ZTF19aaaaaaa_AD.pdf").touch()
     
     # Apply comprehensive mocking
-    with patch('relaiss.anomaly.get_timeseries_df') as mock_get_ts, \
+    with patch('relaiss.features.build_dataset_bank', return_value=combined_df), \
+         patch('relaiss.anomaly.get_timeseries_df') as mock_get_ts, \
          patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
-         patch('sklearn.ensemble.IsolationForest', return_value=MockIsolationForest()), \
+         patch('sklearn.ensemble.IsolationForest', return_value=mock_forest), \
          patch('joblib.dump'), \
+         patch('joblib.load', return_value=mock_forest), \
+         patch('pickle.load', return_value=mock_forest), \
+         patch('builtins.open', mock_open()), \
+         patch('os.path.exists', return_value=True), \
          patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
          patch('matplotlib.pyplot.savefig'), \
          patch('matplotlib.pyplot.show'), \
