@@ -38,10 +38,14 @@ def test_find_neighbors_invalid_input():
 
 def test_annoy_search(test_annoy_index, dataset_bank_path):
     """Test that the Annoy index works as expected for neighbor search."""
-    index, index_path, index_features, object_ids = test_annoy_index
+    index, index_path, object_ids = test_annoy_index
     
-    # Use len(index_features) to determine the vector dimension
-    vector_dim = len(index_features)
+    # Use a predefined set of features to ensure dimensions match
+    lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
+    host_features = ['host_ra', 'host_dec']
+    vector_dim = len(lc_features) + len(host_features)
+    
+    # Create a random test vector with the correct dimension
     test_vector = np.random.rand(vector_dim)
     
     # Get nearest neighbors

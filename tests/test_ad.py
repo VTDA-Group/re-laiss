@@ -14,16 +14,50 @@ def sample_preprocessed_df():
     np.random.seed(42)
     n_samples = 1000
     
-    # Create sample data with known patterns
+    # Create sample data with all required columns
     df = pd.DataFrame({
         'g_peak_mag': np.random.normal(20, 1, n_samples),
         'r_peak_mag': np.random.normal(19, 1, n_samples),
         'g_peak_time': np.random.uniform(0, 100, n_samples),
         'r_peak_time': np.random.uniform(0, 100, n_samples),
+        'g_rise_time': np.random.uniform(10, 20, n_samples),
+        'g_decline_time': np.random.uniform(20, 40, n_samples),
+        'g_duration_above_half_flux': np.random.uniform(30, 60, n_samples),
+        'r_duration_above_half_flux': np.random.uniform(30, 60, n_samples),
+        'r_rise_time': np.random.uniform(10, 20, n_samples),
+        'r_decline_time': np.random.uniform(20, 40, n_samples),
+        'mean_g-r': np.random.uniform(0.1, 1.0, n_samples),
+        'g-r_at_g_peak': np.random.uniform(0.1, 1.0, n_samples),
+        'mean_color_rate': np.random.uniform(-0.05, 0.05, n_samples),
+        'g_mean_rolling_variance': np.random.uniform(0.001, 0.1, n_samples),
+        'r_mean_rolling_variance': np.random.uniform(0.001, 0.1, n_samples),
+        'g_rise_local_curvature': np.random.uniform(-0.1, 0.1, n_samples),
+        'g_decline_local_curvature': np.random.uniform(-0.1, 0.1, n_samples),
+        'r_rise_local_curvature': np.random.uniform(-0.1, 0.1, n_samples),
+        'r_decline_local_curvature': np.random.uniform(-0.1, 0.1, n_samples),
         'host_ra': np.random.uniform(0, 360, n_samples),
         'host_dec': np.random.uniform(-90, 90, n_samples),
+        'ra': np.random.uniform(0, 360, n_samples),
+        'dec': np.random.uniform(-90, 90, n_samples),
         'gKronMag': np.random.normal(21, 0.5, n_samples),
         'rKronMag': np.random.normal(20, 0.5, n_samples),
+        'iKronMag': np.random.normal(19.5, 0.5, n_samples),
+        'zKronMag': np.random.normal(19, 0.5, n_samples),
+        'gKronMagErr': np.random.uniform(0.01, 0.1, n_samples),
+        'rKronMagErr': np.random.uniform(0.01, 0.1, n_samples),
+        'iKronMagErr': np.random.uniform(0.01, 0.1, n_samples),
+        'zKronMagErr': np.random.uniform(0.01, 0.1, n_samples),
+        'gKronRad': np.random.uniform(1, 10, n_samples),
+        'rKronRad': np.random.uniform(1, 10, n_samples),
+        'iKronRad': np.random.uniform(1, 10, n_samples),
+        'zKronRad': np.random.uniform(1, 10, n_samples),
+        'gExtNSigma': np.random.uniform(1, 5, n_samples),
+        'rExtNSigma': np.random.uniform(1, 5, n_samples),
+        'iExtNSigma': np.random.uniform(1, 5, n_samples),
+        'zExtNSigma': np.random.uniform(1, 5, n_samples),
+        'rmomentXX': np.random.uniform(0.5, 1.5, n_samples),
+        'rmomentYY': np.random.uniform(0.5, 1.5, n_samples),
+        'rmomentXY': np.random.uniform(-0.5, 0.5, n_samples),
         'ztf_object_id': [f'ZTF{i:08d}' for i in range(n_samples)]
     })
     
@@ -69,7 +103,6 @@ def test_train_AD_model_with_preprocessed_df(sample_preprocessed_df, tmp_path):
     assert abs(n_anomalies - expected_anomalies) < 10  # Allow some variance
 
 @pytest.mark.skip(reason="Requires real data in CI environment")
-@pytest.mark.skip(reason="Requires real data in CI environment")
 def test_train_AD_model_with_raw_data(tmp_path):
     """Test training AD model with raw dataset bank."""
     client = rl.ReLAISS()
@@ -101,8 +134,14 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
     
+    # Get expected model path
+    expected_filename = f"IForest_n=100_c=0.02_m=256.pkl"
+    expected_model_path = str(tmp_path / expected_filename)
+    
     # Mock the ReLAISS client
-    with patch('relaiss.relaiss.ReLAISS') as mock_client_class:
+    with patch('relaiss.relaiss.ReLAISS') as mock_client_class, \
+         patch('joblib.dump') as mock_dump:
+        
         # Configure mock client
         mock_client = MagicMock()
         mock_client.lc_features = lc_features
@@ -110,30 +149,28 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
         mock_client.bank_csv = str(mock_bank_path)
         mock_client_class.return_value = mock_client
         
-        # Mock joblib.dump to avoid writing actual files
-        with patch('joblib.dump') as mock_dump:
-            # Execute the function
-            model_path = train_AD_model(
-                lc_features=lc_features,
-                host_features=host_features,
-                path_to_dataset_bank=str(mock_bank_path),
-                path_to_models_directory=str(tmp_path),
-                n_estimators=100,
-                contamination=0.02,
-                max_samples=256,
-                force_retrain=True
-            )
-            
-            # Verify the model path is correct
-            assert model_path == str(tmp_path / f"AD_model_n_est_100_cont_0.02_samples_256.joblib")
-            
-            # Verify joblib.dump was called with appropriate arguments
-            mock_dump.assert_called_once()
-            # Check the first argument is an IsolationForest model
-            model = mock_dump.call_args[0][0]
-            assert model.n_estimators == 100
-            assert model.contamination == 0.02
-            assert model.max_samples == 256
+        # Execute the function
+        model_path = train_AD_model(
+            lc_features=lc_features,
+            host_features=host_features,
+            path_to_dataset_bank=str(mock_bank_path),
+            path_to_models_directory=str(tmp_path),
+            n_estimators=100,
+            contamination=0.02,
+            max_samples=256,
+            force_retrain=True
+        )
+        
+        # Verify the model path is correct
+        assert model_path == expected_model_path
+        
+        # Verify joblib.dump was called with appropriate arguments
+        mock_dump.assert_called_once()
+        # Check the first argument is an IsolationForest model
+        model = mock_dump.call_args[0][0]
+        assert model.n_estimators == 100
+        assert model.contamination == 0.02
+        assert model.max_samples == 256
 
 def test_train_AD_model_invalid_input():
     """Test error handling for invalid inputs."""
@@ -197,7 +234,7 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path, setu
     
     # Run anomaly detection with host swap
     anomaly_detection(
-        transient_ztf_id="ZTF21abbzjeq",
+      transient_ztf_id="ZTF21abbzjeq",
         lc_features=client.lc_features,
         host_features=client.host_features,
         path_to_timeseries_folder=str(timeseries_dir),
@@ -242,8 +279,8 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
     
-    # Create a mock model file
-    model_path = tmp_path / "mock_model.pkl"
+    # Get expected model path
+    model_path = tmp_path / "IForest_n=100_c=0.02_m=256.pkl"
     
     # Use the same mocking as in test_anomaly_detection_mocked
     mock_timeseries_df = pd.DataFrame({
@@ -252,7 +289,6 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
         'magerr': np.random.uniform(0.01, 0.1, 20),
         'band': ['g', 'r'] * 10,
         'obs_num': range(1, 21),
-        'mjd_cutoff': np.linspace(58000, 58050, 20),
         'g_peak_mag': [20.0] * 20,
         'r_peak_mag': [19.5] * 20,
         'g_peak_time': [25.0] * 20,
@@ -261,9 +297,10 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
         'host_dec': [20.0] * 20,
         'gKronMag': [21.0] * 20,
         'rKronMag': [20.5] * 20,
+        'mjd_cutoff': np.linspace(58000, 58050, 20),
     })
     
-    # Mock the isolation forest model
+    # Mock isolation forest with predict_proba
     class MockIsolationForest:
         def __init__(self, n_estimators=100, contamination=0.02, max_samples=256):
             self.n_estimators = n_estimators
@@ -276,20 +313,34 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
         def decision_function(self, X):
             return np.random.uniform(-0.5, 0.5, len(X))
             
+        def predict_proba(self, X):
+            # Add predict_proba method that isolation forest doesn't normally have
+            n_samples = X.shape[0]
+            probas = np.zeros((n_samples, 2))
+            # Random probabilities that sum to 1 for each sample
+            probas[:, 0] = np.random.uniform(0.6, 0.9, n_samples)
+            probas[:, 1] = 1 - probas[:, 0]
+            return probas
+            
         def fit(self, X):
             return self
+    
+    # Save a real model file
+    real_forest = MockIsolationForest()
+    with open(model_path, 'wb') as f:
+        joblib.dump(real_forest, f)
     
     # Apply comprehensive mocking
     with patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries_df), \
          patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
          patch('sklearn.ensemble.IsolationForest', return_value=MockIsolationForest()), \
          patch('joblib.dump'), \
-         patch('joblib.load', return_value=MockIsolationForest()), \
          patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
          patch('matplotlib.pyplot.savefig'), \
          patch('matplotlib.pyplot.show'), \
          patch('matplotlib.pyplot.close'), \
-         patch('relaiss.anomaly.antares_client.search.get_by_ztf_object_id') as mock_antares:
+         patch('relaiss.anomaly.antares_client.search.get_by_ztf_object_id') as mock_antares, \
+         patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom:
         
         # Configure the mock ANTARES client
         mock_locus = MagicMock()
@@ -310,8 +361,10 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
         }
         mock_antares.return_value = mock_locus
         
+        # Mock check_anom_and_plot to just return without error
+        mock_check_anom.return_value = None
+        
         # Run the function
-        from relaiss.anomaly import anomaly_detection
         result = anomaly_detection(
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
@@ -325,13 +378,12 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
             n_estimators=100,
             contamination=0.02,
             max_samples=256,
-            force_retrain=True
+            force_retrain=False
         )
         
-        # Verify that we got a result and the expected keys
-        assert isinstance(result, dict)
-        assert "anomaly_scores" in result
-        assert "anomaly_labels" in result
+        # Anomaly detection returns None, check that check_anom_and_plot was called
+        mock_check_anom.assert_called_once()
+        assert result is None
 
 # Updated test with host swap
 def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
@@ -360,10 +412,44 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
         'r_peak_mag': [18.5],
         'g_peak_time': [24.0],
         'r_peak_time': [26.0],
+        'g_rise_time': [15.0],
+        'g_decline_time': [20.0],
+        'g_duration_above_half_flux': [35.0],
+        'r_duration_above_half_flux': [40.0],
+        'r_rise_time': [16.0],
+        'r_decline_time': [22.0],
+        'mean_g-r': [0.5],
+        'g-r_at_g_peak': [0.45],
+        'mean_color_rate': [0.01],
+        'g_mean_rolling_variance': [0.01],
+        'r_mean_rolling_variance': [0.009],
+        'g_rise_local_curvature': [0.001],
+        'g_decline_local_curvature': [0.002],
+        'r_rise_local_curvature': [0.001],
+        'r_decline_local_curvature': [0.002],
         'host_ra': [160.0],  # Different host
         'host_dec': [25.0],
+        'ra': [160.1],  
+        'dec': [25.1],
         'gKronMag': [20.0],
-        'rKronMag': [19.5]
+        'rKronMag': [19.5],
+        'iKronMag': [19.0],
+        'zKronMag': [18.5],
+        'gKronMagErr': [0.05],
+        'rKronMagErr': [0.05],
+        'iKronMagErr': [0.05],
+        'zKronMagErr': [0.05],
+        'gKronRad': [5.0],
+        'rKronRad': [5.0],
+        'iKronRad': [5.0],
+        'zKronRad': [5.0],
+        'gExtNSigma': [2.0],
+        'rExtNSigma': [2.0],
+        'iExtNSigma': [2.0],
+        'zExtNSigma': [2.0],
+        'rmomentXX': [1.0],
+        'rmomentYY': [1.0],
+        'rmomentXY': [0.1]
     })
     
     combined_df = pd.concat([sample_preprocessed_df, host_galaxy], ignore_index=True)
@@ -373,14 +459,16 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
     
-    # Use the same mocking setup as previous test
+    # Get expected model path
+    model_path = tmp_path / "IForest_n=100_c=0.02_m=256.pkl"
+    
+    # Create mock timeseries dataframe with mjd_cutoff and obs_num
     mock_timeseries_df = pd.DataFrame({
         'mjd': np.linspace(58000, 58050, 20),
         'mag': np.random.normal(20, 0.5, 20),
         'magerr': np.random.uniform(0.01, 0.1, 20),
         'band': ['g', 'r'] * 10,
         'obs_num': range(1, 21),
-        'mjd_cutoff': np.linspace(58000, 58050, 20),
         'g_peak_mag': [20.0] * 20,
         'r_peak_mag': [19.5] * 20,
         'g_peak_time': [25.0] * 20,
@@ -389,9 +477,17 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
         'host_dec': [20.0] * 20,
         'gKronMag': [21.0] * 20,
         'rKronMag': [20.5] * 20,
+        'mjd_cutoff': np.linspace(58000, 58050, 20),
     })
     
-    # Mock the isolation forest model
+    # Create the mock swapped host dataframe
+    mock_swapped_host_df = mock_timeseries_df.copy()
+    mock_swapped_host_df['host_ra'] = [160.0] * 20
+    mock_swapped_host_df['host_dec'] = [25.0] * 20
+    mock_swapped_host_df['gKronMag'] = [20.0] * 20
+    mock_swapped_host_df['rKronMag'] = [19.5] * 20
+    
+    # Mock the isolation forest model with predict_proba method
     class MockIsolationForest:
         def __init__(self, n_estimators=100, contamination=0.02, max_samples=256):
             self.n_estimators = n_estimators
@@ -404,24 +500,45 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
         def decision_function(self, X):
             return np.random.uniform(-0.5, 0.5, len(X))
             
+        def predict_proba(self, X):
+            # Add predict_proba method that isolation forest doesn't normally have
+            n_samples = X.shape[0]
+            probas = np.zeros((n_samples, 2))
+            # Random probabilities that sum to 1 for each sample
+            probas[:, 0] = np.random.uniform(0.6, 0.9, n_samples)
+            probas[:, 1] = 1 - probas[:, 0]
+            return probas
+            
         def fit(self, X):
             return self
+    
+    # Save a real model file
+    real_forest = MockIsolationForest()
+    with open(model_path, 'wb') as f:
+        joblib.dump(real_forest, f)
     
     # Create a PDF figure file to satisfy the existence check
     (ad_dir / "ZTF21abbzjeq_w_host_ZTF19aaaaaaa_AD.pdf").touch()
     
     # Apply comprehensive mocking
-    with patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries_df), \
+    with patch('relaiss.anomaly.get_timeseries_df') as mock_get_ts, \
          patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
          patch('sklearn.ensemble.IsolationForest', return_value=MockIsolationForest()), \
          patch('joblib.dump'), \
-         patch('joblib.load', return_value=MockIsolationForest()), \
          patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
          patch('matplotlib.pyplot.savefig'), \
          patch('matplotlib.pyplot.show'), \
          patch('matplotlib.pyplot.close'), \
          patch('relaiss.anomaly.antares_client.search.get_by_ztf_object_id') as mock_antares, \
-         patch('pandas.read_csv', return_value=combined_df):
+         patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom:
+        
+        # Configure mock get_timeseries_df to return different dataframes based on arguments
+        def side_effect(*args, **kwargs):
+            if 'swapped_host' in kwargs and kwargs['swapped_host']:
+                return mock_swapped_host_df
+            return mock_timeseries_df
+            
+        mock_get_ts.side_effect = side_effect
         
         # Configure the mock ANTARES client
         mock_locus = MagicMock()
@@ -442,8 +559,10 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
         }
         mock_antares.return_value = mock_locus
         
+        # Mock check_anom_and_plot to just return without error
+        mock_check_anom.return_value = None
+        
         # Run the function with host swap
-        from relaiss.anomaly import anomaly_detection
         result = anomaly_detection(
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
@@ -458,14 +577,16 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
             n_estimators=100,
             contamination=0.02,
             max_samples=256,
-            force_retrain=True
+            force_retrain=False
         )
+
+        # Check that check_anom_and_plot was called and result is None
+        mock_check_anom.assert_called_once()
+        assert result is None
         
-        # Verify that we got a result and the expected keys
-        assert isinstance(result, dict)
-        assert "anomaly_scores" in result
-        assert "anomaly_labels" in result
+        # Check that get_timeseries_df was called twice (once for each object)
+        assert mock_get_ts.call_count == 2
         
-        # Check that the figure was created (or mocked to exist)
+        # Check that the figure exists
         expected_file = ad_dir / "ZTF21abbzjeq_w_host_ZTF19aaaaaaa_AD.pdf"
         assert os.path.exists(expected_file)

@@ -73,19 +73,25 @@ def test_anomaly_detection_simplified(tmp_path):
     lc_features = ['g_peak_mag', 'r_peak_mag']
     host_features = ['host_ra', 'host_dec']
     
-    # Create expected result
-    expected_result = {
-        'anomaly_scores': np.random.uniform(0, 1, 10),
-        'anomaly_labels': np.random.choice([0, 1], size=10)
-    }
-    
     # Mock functions
     with patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom, \
          patch('relaiss.anomaly.train_AD_model', return_value=str(model_path)), \
          patch('relaiss.anomaly.get_timeseries_df') as mock_ts, \
-         patch('relaiss.anomaly.get_TNS_data', return_value=("TestSN", "Ia", 0.1)):
+         patch('relaiss.anomaly.get_TNS_data', return_value=("TestSN", "Ia", 0.1)), \
+         patch('relaiss.features.build_dataset_bank') as mock_build_bank:
         
-        mock_check_anom.return_value = expected_result
+        # Configure mocks
+        # Store the results so we can return them from our test
+        anomaly_results = {
+            'anomaly_scores': np.random.uniform(0, 1, 10),
+            'anomaly_labels': np.random.choice([0, 1], size=10)
+        }
+        
+        # Side effect function to capture the result and return it for our test
+        def side_effect(*args, **kwargs):
+            return None  # Original function returns None
+            
+        mock_check_anom.side_effect = side_effect
         
         mock_ts.return_value = pd.DataFrame({
             'mjd': np.linspace(58000, 58050, 10),
@@ -96,24 +102,36 @@ def test_anomaly_detection_simplified(tmp_path):
             'r_peak_mag': [19.5] * 10,
             'host_ra': [150.0] * 10,
             'host_dec': [20.0] * 10,
+            'mjd_cutoff': np.linspace(58000, 58050, 10),
+            'obs_num': list(range(1, 11))
         })
         
-        anomaly_detection(
+        # Mock build_dataset_bank to avoid SFD file access
+        features_df = pd.DataFrame({
+            'ztf_object_id': ['ZTF21abbzjeq'],
+            'g_peak_mag': [20.0],
+            'r_peak_mag': [19.5],
+            'host_ra': [150.0],
+            'host_dec': [20.0]
+        })
+        mock_build_bank.return_value = features_df
+        
+        # Run the function
+        result = anomaly_detection(
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,
             path_to_timeseries_folder=str(tmp_path),
-            path_to_sfd_data_folder=None,
-            path_to_dataset_bank=None,
+            path_to_sfd_data_folder=None,  # This will be ignored due to our mocking
+            path_to_dataset_bank=None,  # This will be ignored due to our mocking
             path_to_models_directory=str(model_dir),
             path_to_figure_directory=str(figure_dir),
             save_figures=True,
             force_retrain=False
         )
         
+        # Verify the mock was called
         mock_check_anom.assert_called_once()
         
-        result = mock_check_anom.return_value
-        assert isinstance(result, dict)
-        assert "anomaly_scores" in result
-        assert "anomaly_labels" in result 
+        # Should return None since that's what the function is defined to return
+        assert result is None 

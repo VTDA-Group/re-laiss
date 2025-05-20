@@ -200,12 +200,12 @@ def test_annoy_index(dataset_bank_path):
     # Build a temporary Annoy index
     with tempfile.TemporaryDirectory() as tmpdir:
         index_path = Path(tmpdir) / "annoy_index"
-        index, index_features, object_ids = build_test_annoy_index(
+        index, index_path, object_ids = build_test_annoy_index(
             test_databank_path=dataset_bank_path,
-            lc_features=['g_peak_mag', 'r_peak_mag'],
-            host_features=['gKronMag', 'rKronMag']
+            lc_features=['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time'],
+            host_features=['host_ra', 'host_dec']
         )
-        yield index, index_path, index_features, object_ids
+        yield index, index_path, object_ids
 
 @pytest.fixture
 def mock_timeseries():
