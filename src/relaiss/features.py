@@ -176,6 +176,7 @@ def build_dataset_bank(
     path_to_dataset_bank=None,
     building_entire_df_bank=False,
     building_for_AD=False,
+    preprocessed_df=None,
 ):
     """Clean, impute, dust-correct, and engineer features for reLAISS.
 
@@ -201,12 +202,21 @@ def build_dataset_bank(
     building_for_AD : bool, default False
         Use simpler mean imputation and suppress verbose prints for
         anomaly-detection pipelines.
+    preprocessed_df : pandas.DataFrame | None, default None
+        Pre-processed dataframe with imputed features. If provided, this is returned 
+        directly instead of processing raw_df_bank.
 
     Returns
     -------
     pandas.DataFrame
         Fully hydrated feature table indexed by ``ztf_object_id``.
     """
+    # If preprocessed dataframe is provided, return it directly
+    if preprocessed_df is not None:
+        if not building_for_AD:
+            print("Using provided preprocessed dataframe instead of processing raw data")
+        return preprocessed_df
+        
     # Generate cache key based on input parameters
     df_hash = compute_dataframe_hash(raw_df_bank)
     cache_key = get_cache_key(
@@ -289,7 +299,7 @@ def build_dataset_bank(
         feat_imputer = KNNImputer(weights="distance").fit(X)
         imputed_filt_arr = feat_imputer.transform(X)
     else:
-        true_raw_df_bank = pd.read_csv(path_to_dataset_bank)
+        true_raw_df_bank = pd.read_csv(path_to_dataset_bank, low_memory=False)
         X = true_raw_df_bank[raw_feats_no_ztf]
 
         if building_for_AD:
@@ -420,6 +430,7 @@ def extract_lc_and_host_features(
     store_csv=False,
     building_for_AD=False,
     swapped_host=False,
+    preprocessed_df=None,
 ):
     """End-to-end extraction of light-curve **and** host-galaxy features.
 
@@ -450,6 +461,9 @@ def extract_lc_and_host_features(
         Quieter prints + mean imputation only.
     swapped_host : bool, default False
         Indicator used when re-running with an alternate host galaxy.
+    preprocessed_df : pandas.DataFrame | None, default None
+        Pre-processed dataframe with imputed features. If provided, this is used 
+        instead of loading and processing the raw dataset bank.
 
     Returns
     -------
@@ -699,6 +713,7 @@ def extract_lc_and_host_features(
         theorized=True if theorized_lightcurve_df is not None else False,
         path_to_dataset_bank=path_to_dataset_bank,
         building_for_AD=building_for_AD,
+        preprocessed_df=preprocessed_df,
     )
     if building_for_AD:
         print("Finished engineering features.\n")

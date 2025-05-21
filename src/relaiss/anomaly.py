@@ -1,5 +1,7 @@
 import os
 import pickle
+import time
+from pathlib import Path
 
 import antares_client
 import matplotlib.pyplot as plt
@@ -9,8 +11,11 @@ import joblib
 from pyod.models.iforest import IForest
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from kneed import KneeLocator
+from sklearn.ensemble import IsolationForest
 
 from .fetch import get_timeseries_df, get_TNS_data
+from .features import build_dataset_bank
 
 
 def train_AD_model(
@@ -61,18 +66,16 @@ def train_AD_model(
     Either path_to_dataset_bank or preprocessed_df must be provided.
     If both are provided, preprocessed_df takes precedence.
     """
-    from sklearn.ensemble import IsolationForest
-    import joblib
-    import os
-    
     if preprocessed_df is None and path_to_dataset_bank is None:
         raise ValueError("Either path_to_dataset_bank or preprocessed_df must be provided")
     
     # Create models directory if it doesn't exist
     os.makedirs(path_to_models_directory, exist_ok=True)
     
-    # Generate model filename based on parameters
-    model_name = f"IForest_n={n_estimators}_c={contamination}_m={max_samples}.pkl"
+    # Generate model filename based on parameters including feature counts
+    num_lc_features = len(lc_features)
+    num_host_features = len(host_features)
+    model_name = f"IForest_n={n_estimators}_c={contamination}_m={max_samples}_lc={num_lc_features}_host={num_host_features}.pkl"
     model_path = os.path.join(path_to_models_directory, model_name)
     
     # Check if model already exists
@@ -88,8 +91,7 @@ def train_AD_model(
         df = preprocessed_df
     else:
         print("Loading and preprocessing dataset bank...")
-        from .features import build_dataset_bank
-        raw_df = pd.read_csv(path_to_dataset_bank)
+        raw_df = pd.read_csv(path_to_dataset_bank, low_memory=False)
         df = build_dataset_bank(
             raw_df,
             path_to_sfd_folder=path_to_sfd_folder,
@@ -133,6 +135,7 @@ def anomaly_detection(
     contamination=0.02,
     max_samples=1024,
     force_retrain=False,
+    preprocessed_df=None,
 ):
     """Run anomaly detection for a single transient (with optional host swap).
 
@@ -151,6 +154,9 @@ def anomaly_detection(
     n_estimators, contamination, max_samples : Isolation-Forest params.
     force_retrain : bool, default False
         Pass-through to :func:`train_AD_model`.
+    preprocessed_df : pandas.DataFrame | None, optional
+        Pre-processed dataframe with imputed features. If provided, this is used
+        instead of loading and processing the raw dataset bank.
 
     Returns
     -------
@@ -164,6 +170,7 @@ def anomaly_detection(
         lc_features,
         host_features,
         path_to_dataset_bank,
+        preprocessed_df=preprocessed_df,
         path_to_sfd_folder=path_to_sfd_folder,
         path_to_models_directory=path_to_models_directory,
         n_estimators=n_estimators,
@@ -175,6 +182,23 @@ def anomaly_detection(
     # Load the model
     clf = joblib.load(path_to_trained_model)
 
+    # If no preprocessed_df was provided, try to find a cached one
+    if preprocessed_df is None:
+        # Try to find the cached preprocessed dataframe used for training
+        from .utils import get_cache_dir
+        cache_dir = Path(get_cache_dir())
+        
+        for cache_file in cache_dir.glob("*.pkl"):
+            if "dataset_bank" in str(cache_file) and not cache_file.name.startswith("timeseries"):
+                try:
+                    cached_df = joblib.load(cache_file)
+                    if isinstance(cached_df, pd.DataFrame):
+                        preprocessed_df = cached_df
+                        print("Using cached preprocessed dataframe for feature extraction")
+                        break
+                except:
+                    continue
+
     # Load the timeseries dataframe
     print("\nRebuilding timeseries dataframe(s) for AD...")
     timeseries_df = get_timeseries_df(
@@ -185,6 +209,7 @@ def anomaly_detection(
         path_to_dataset_bank=path_to_dataset_bank,
         save_timeseries=False,
         building_for_AD=True,
+        preprocessed_df=preprocessed_df,
     )
 
     if host_ztf_id_to_swap_in is not None:
@@ -198,6 +223,7 @@ def anomaly_detection(
             save_timeseries=False,
             building_for_AD=True,
             swapped_host=True,
+            preprocessed_df=preprocessed_df,
         )
 
         host_values = swapped_host_timeseries_df[host_features].iloc[0]
@@ -210,20 +236,25 @@ def anomaly_detection(
     )
 
     tns_name, tns_cls, tns_z = get_TNS_data(transient_ztf_id)
-
-    check_anom_and_plot(
-        clf=clf,
-        input_ztf_id=transient_ztf_id,
-        swapped_host_ztf_id=host_ztf_id_to_swap_in,
-        input_spec_cls=tns_cls,
-        input_spec_z=tns_z,
-        anom_thresh=50,
-        timeseries_df_full=timeseries_df,
-        timeseries_df_features_only=timeseries_df_filt_feats,
-        ref_info=input_lightcurve_locus,
-        savefig=save_figures,
-        figure_path=path_to_figure_directory,
-    )
+    
+    # Suppress the UserWarning about feature names
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="X has feature names, but IsolationForest was fitted without feature names")
+        # Run the anomaly detection check
+        check_anom_and_plot(
+            clf=clf,
+            input_ztf_id=transient_ztf_id,
+            swapped_host_ztf_id=host_ztf_id_to_swap_in,
+            input_spec_cls=tns_cls,
+            input_spec_z=tns_z,
+            anom_thresh=50,
+            timeseries_df_full=timeseries_df,
+            timeseries_df_features_only=timeseries_df_filt_feats,
+            ref_info=input_lightcurve_locus,
+            savefig=save_figures,
+            figure_path=path_to_figure_directory,
+        )
     return
 
 

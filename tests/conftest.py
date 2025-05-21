@@ -216,6 +216,65 @@ def mock_timeseries():
         mock_ts.return_value = df
         yield mock_ts
 
+@pytest.fixture
+def sample_preprocessed_df():
+    """Create a sample preprocessed dataframe for testing."""
+    np.random.seed(42)
+    n_samples = 100
+    
+    # Create sample data with required columns
+    df = pd.DataFrame({
+        # Lightcurve features
+        'g_peak_mag': np.random.normal(20, 1, n_samples),
+        'r_peak_mag': np.random.normal(19, 1, n_samples),
+        'g_peak_time': np.random.uniform(0, 100, n_samples),
+        'r_peak_time': np.random.uniform(0, 100, n_samples),
+        # Host galaxy position
+        'ra': np.random.uniform(0, 360, n_samples),
+        'dec': np.random.uniform(-90, 90, n_samples),
+        'host_ra': np.random.uniform(0, 360, n_samples),
+        'host_dec': np.random.uniform(-90, 90, n_samples),
+        # g-band Kron measurements
+        'gKronMag': np.random.normal(21, 0.5, n_samples),
+        'gKronMagErr': np.random.uniform(0.01, 0.2, n_samples),
+        'gKronRad': np.random.uniform(1, 5, n_samples),
+        'gExtNSigma': np.random.uniform(1, 3, n_samples),
+        # r-band Kron measurements
+        'rKronMag': np.random.normal(20, 0.5, n_samples),
+        'rKronMagErr': np.random.uniform(0.01, 0.2, n_samples),
+        'rKronRad': np.random.uniform(1, 5, n_samples),
+        'rExtNSigma': np.random.uniform(1, 3, n_samples),
+        # i-band Kron measurements
+        'iKronMag': np.random.normal(19.5, 0.5, n_samples),
+        'iKronMagErr': np.random.uniform(0.01, 0.2, n_samples),
+        'iKronRad': np.random.uniform(1, 5, n_samples),
+        'iExtNSigma': np.random.uniform(1, 3, n_samples),
+        # z-band Kron measurements
+        'zKronMag': np.random.normal(19, 0.5, n_samples),
+        'zKronMagErr': np.random.uniform(0.01, 0.2, n_samples),
+        'zKronRad': np.random.uniform(1, 5, n_samples),
+        'zExtNSigma': np.random.uniform(1, 3, n_samples),
+        # Moment information
+        'rmomentXX': np.random.uniform(0.5, 2, n_samples),
+        'rmomentYY': np.random.uniform(0.5, 2, n_samples),
+        'rmomentXY': np.random.uniform(-0.5, 0.5, n_samples),
+        # ZTF IDs
+        'ztf_object_id': [f'ZTF{i:08d}' for i in range(n_samples)]
+    })
+    
+    # Add corrected magnitudes and color features that would normally be engineered
+    df['gKronMagCorrected'] = df['gKronMag'] - 0.1  # Mock extinction correction
+    df['rKronMagCorrected'] = df['rKronMag'] - 0.08
+    df['iKronMagCorrected'] = df['iKronMag'] - 0.06
+    df['zKronMagCorrected'] = df['zKronMag'] - 0.04
+    
+    # Add color features
+    df['gminusrKronMag'] = df['gKronMag'] - df['rKronMag']
+    df['rminusiKronMag'] = df['rKronMag'] - df['iKronMag']
+    df['iminuszKronMag'] = df['iKronMag'] - df['zKronMag']
+    
+    return df
+
 def pytest_configure(config):
     """Configure pytest markers."""
     config.addinivalue_line(

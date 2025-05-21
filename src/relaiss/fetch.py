@@ -153,6 +153,7 @@ def get_timeseries_df(
     path_to_dataset_bank=None,
     building_for_AD=False,
     swapped_host=False,
+    preprocessed_df=None,
 ):
     """Retrieve or build a fully-hydrated time-series feature DataFrame.
 
@@ -172,12 +173,33 @@ def get_timeseries_df(
         Reference bank for imputers.
     building_for_AD : bool, default False
     swapped_host : bool, default False
+    preprocessed_df : pandas.DataFrame | None, default None
+        Pre-processed dataframe with imputed features. If provided, this is used 
+        instead of loading and processing the raw dataset bank.
 
     Returns
     -------
     pandas.DataFrame
         Feature rows ready for indexing or AD.
     """
+    # When preprocessed_df is provided, skip cache and file checks
+    # and always use extract_lc_and_host_features to ensure consistency
+    if preprocessed_df is not None:
+        print("Using provided preprocessed dataframe to extract time series features...")
+        return extract_lc_and_host_features(
+            ztf_id=ztf_id,
+            theorized_lightcurve_df=theorized_lightcurve_df,
+            path_to_timeseries_folder=path_to_timeseries_folder,
+            path_to_sfd_folder=path_to_sfd_folder,
+            path_to_dataset_bank=path_to_dataset_bank,
+            show_lc=False,
+            show_host=False,
+            store_csv=save_timeseries,
+            building_for_AD=building_for_AD,
+            swapped_host=swapped_host,
+            preprocessed_df=preprocessed_df,
+        )
+        
     # Generate cache key based on input parameters
     cache_params = {
         'ztf_id': ztf_id,

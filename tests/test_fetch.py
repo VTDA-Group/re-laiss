@@ -133,3 +133,43 @@ def test_with_theorized_lightcurve():
                 df[col].reset_index(drop=True), 
                 lightcurve_df[col].reset_index(drop=True)
             ) 
+
+def test_get_timeseries_df_with_preprocessed_df():
+    """Test that get_timeseries_df correctly uses a provided preprocessed dataframe."""
+    import pandas as pd
+    from relaiss.fetch import get_timeseries_df
+    
+    # Create a sample preprocessed dataframe with the test transient
+    test_preprocessed_df = pd.DataFrame({
+        'ztf_object_id': ['ZTF21abbzjeq', 'ZTF19aaaaaaa'],
+        'g_peak_mag': [20.0, 19.0],
+        'r_peak_mag': [19.5, 18.5], 
+        'host_ra': [150.0, 160.0],
+        'host_dec': [20.0, 25.0]
+    })
+    
+    # Mock extract_lc_and_host_features to verify it's called with the preprocessed_df
+    with patch('relaiss.fetch.extract_lc_and_host_features') as mock_extract:
+        # Mock the returned timeseries dataframe
+        mock_extract.return_value = pd.DataFrame({
+            'mjd': [58000, 58001],
+            'mag': [20.0, 20.1],
+            'magerr': [0.1, 0.1],
+            'band': ['g', 'r']
+        })
+        
+        # Call get_timeseries_df with a preprocessed dataframe
+        result = get_timeseries_df(
+            ztf_id='ZTF21abbzjeq',
+            path_to_timeseries_folder='dummy_path',
+            path_to_sfd_folder='dummy_path',
+            path_to_dataset_bank='dummy_path',
+            preprocessed_df=test_preprocessed_df
+        )
+        
+        # Verify the extract_lc_and_host_features function was called with the preprocessed_df
+        mock_extract.assert_called_once()
+        # Check that preprocessed_df was passed to extract_lc_and_host_features
+        args, kwargs = mock_extract.call_args
+        assert 'preprocessed_df' in kwargs
+        assert kwargs['preprocessed_df'] is test_preprocessed_df 

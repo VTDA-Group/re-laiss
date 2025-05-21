@@ -351,6 +351,7 @@ def corner_plot(
     remove_outliers_bool=True,
     path_to_figure_directory="../figures",
     save_plots=True,
+    preprocessed_df=None,  # Added parameter for preprocessed dataframe
 ):
     """Create corner plots comparing feature distributions between neighbors and the full dataset.
     
@@ -372,6 +373,9 @@ def corner_plot(
         Directory to save the corner plots.
     save_plots : bool, default True
         Whether to save the plots to disk.
+    preprocessed_df : pandas.DataFrame | None, default None
+        Optional preprocessed dataframe with imputed features to use instead of loading 
+        the raw dataset. This ensures no NaN values which could cause issues.
         
     Returns
     -------
@@ -411,9 +415,17 @@ def corner_plot(
 
     neighbor_ztfids = [link.split("/")[-1] for link in neighbors_df["ztf_link"]]
 
-    dataset_bank_df = pd.read_csv(path_to_dataset_bank)
-    if 'ZTFID' in dataset_bank_df.columns:
-        dataset_bank_df = dataset_bank_df.rename(columns={'ZTFID': 'ztf_object_id'})
+    # Use preprocessed dataframe if provided, otherwise load from file
+    if preprocessed_df is not None:
+        print("Using provided preprocessed dataframe for corner plots")
+        dataset_bank_df = preprocessed_df
+        if 'ZTFID' in dataset_bank_df.columns:
+            dataset_bank_df = dataset_bank_df.rename(columns={'ZTFID': 'ztf_object_id'})
+    else:
+        dataset_bank_df = pd.read_csv(path_to_dataset_bank, low_memory=False)
+        if 'ZTFID' in dataset_bank_df.columns:
+            dataset_bank_df = dataset_bank_df.rename(columns={'ZTFID': 'ztf_object_id'})
+            
     dataset_bank_df = dataset_bank_df[
         ["ztf_object_id"] + lc_feature_names + host_feature_names
     ]

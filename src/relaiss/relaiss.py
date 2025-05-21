@@ -190,7 +190,7 @@ class ReLAISS:
             url = "https://drive.google.com/uc?export=download&id=1uH_03ju50Enb7ZhiduDrmCVTMvTc7bMC"
             gdown.download(url, str(bank_path), quiet=False)
 
-        raw_df_bank = pd.read_csv(bank_path)
+        raw_df_bank = pd.read_csv(bank_path, low_memory=False)
         
         # Generate cache key for preprocessed data
         cache_params = {
@@ -301,6 +301,7 @@ class ReLAISS:
         self,
         ztf_object_id,
         theorized_lightcurve_df=None,
+        host_ztf_id=None,
         path_to_dataset_bank: str | Path | None = None,
         use_pca=False,
         num_pca_components=20,
@@ -309,6 +310,7 @@ class ReLAISS:
         max_neighbor_dist=None,
         search_k=1000,
         weight_lc_feats_factor=1.0,
+        num_sims=0,
         plot=False,
         save_figures=False,
         path_to_figure_directory="../figures",
@@ -325,6 +327,8 @@ class ReLAISS:
             ZTF ID of the transient to find neighbors for.
         theorized_lightcurve_df : pandas.DataFrame | None, default None
             Optional simulated lightcurve to use instead of a real transient.
+        host_ztf_id : str | None, default None
+            ZTF ID of the host galaxy to swap into the input transient.
         path_to_dataset_bank : str | Path | None, default None
             Path to the dataset bank CSV. If None, uses the bank loaded in load_reference().
         use_pca : bool, default False
@@ -341,6 +345,8 @@ class ReLAISS:
             ANNOY search_k parameter for controlling search accuracy.
         weight_lc_feats_factor : float, default 1.0
             Factor to up-weight lightcurve features relative to host features.
+        num_sims : int, default 0
+            Number of Monte Carlo simulations to perform.
         plot : bool, default False
             Whether to generate diagnostic plots.
         save_figures : bool, default False
@@ -374,15 +380,16 @@ class ReLAISS:
 
         primer_dict = primer(
             lc_ztf_id=ztf_object_id,
-            theorized_lightcurve_df=None,
-            host_ztf_id=None,
+            theorized_lightcurve_df=theorized_lightcurve_df,
+            host_ztf_id=host_ztf_id,
             dataset_bank_path=dataset_bank,
             path_to_timeseries_folder='./',
             path_to_sfd_folder=self.path_to_sfd_folder,
             lc_features=self.lc_features,
             host_features=self.host_features,
-            num_sims=0,
+            num_sims=num_sims,
             save_timeseries=False,
+            preprocessed_df=self.hydrated_bank,
         )
 
         start_time = time.time()
@@ -547,7 +554,7 @@ class ReLAISS:
                 plt.show()
 
             print(
-                "Stopping nearest neighbor search after suggesting neighbor number. Set run_NN=True and suggest_neighbor_num=False for full search.\n"
+                "Stopping nearest neighbor search after suggesting neighbor number. Set suggest_neighbor_num=False for full search.\n"
             )
             return
 
@@ -621,11 +628,18 @@ class ReLAISS:
             # Plot hosts
             print("\nGenerating hosts grid plot...")
 
-            # Read the dataset bank and handle column name variations
-            df_bank = pd.read_csv(dataset_bank)
-            if 'ZTFID' in df_bank.columns:
-                df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
-            df_bank = df_bank.set_index('ztf_object_id')
+            # Get preprocessed dataframe for host data
+            if hasattr(self, 'hydrated_bank'):
+                df_bank = self.hydrated_bank.copy()
+                if 'ZTFID' in df_bank.columns:
+                    df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+                df_bank = df_bank.set_index('ztf_object_id')
+            else:
+                # Fallback to reading from CSV if hydrated_bank not available
+                df_bank = pd.read_csv(dataset_bank, low_memory=False)
+                if 'ZTFID' in df_bank.columns:
+                    df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+                df_bank = df_bank.set_index('ztf_object_id')
 
             hosts_to_plot = neighbor_ztfids.copy()
             host_ra_l, host_dec_l = [], []

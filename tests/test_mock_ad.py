@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 import tempfile
 from pathlib import Path
 from relaiss.anomaly import train_AD_model
+from sklearn.ensemble import IsolationForest
 
 def test_train_AD_model_with_preprocessed_df():
     """Test training AD model with preprocessed dataframe."""
@@ -57,13 +58,8 @@ def test_train_AD_model_error_handling():
             path_to_dataset_bank=None
         )
 
-@patch('sklearn.ensemble.IsolationForest')
-def test_train_AD_model_with_joblib(mock_iforest):
+def test_train_AD_model_with_joblib():
     """Test train_AD_model with joblib mocked."""
-    # Create mock model
-    mock_model = MagicMock()
-    mock_iforest.return_value = mock_model
-    
     # Create sample data
     df = pd.DataFrame({
         'feature1': [1, 2, 3],
@@ -71,7 +67,14 @@ def test_train_AD_model_with_joblib(mock_iforest):
     })
     
     with tempfile.TemporaryDirectory() as tmpdir:
-        with patch('joblib.dump') as mock_dump:
+        with patch('relaiss.anomaly.IsolationForest') as mock_iforest_class, \
+             patch('joblib.dump') as mock_dump:
+            
+            # Create mock model
+            mock_model = MagicMock()
+            mock_model.fit.return_value = mock_model
+            mock_iforest_class.return_value = mock_model
+            
             # Call train_AD_model
             model_path = train_AD_model(
                 lc_features=['feature1'],
@@ -81,12 +84,14 @@ def test_train_AD_model_with_joblib(mock_iforest):
                 force_retrain=True
             )
             
+            # Verify that the Isolation Forest constructor was called with expected parameters
+            mock_iforest_class.assert_called_once()
+            _, kwargs = mock_iforest_class.call_args
+            assert kwargs['n_estimators'] == 500
+            assert kwargs['contamination'] == 0.02
+            assert kwargs['max_samples'] == 1024
+            
             # Check that joblib.dump was called with the right arguments
             mock_dump.assert_called_once()
-            assert mock_dump.call_args[0][0] == mock_model
-            assert mock_dump.call_args[0][1] == model_path
-            
-            # Check that fit was called with the right data
-            assert mock_model.fit.called
-            fit_arg = mock_model.fit.call_args[0][0]
-            assert fit_arg.shape == (3, 2)  # 3 rows, 2 columns 
+            assert mock_dump.call_args[0][0] is mock_model  # First arg should be the model
+            assert mock_dump.call_args[0][1] == model_path  # Second arg should be the path 

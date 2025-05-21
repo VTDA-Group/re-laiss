@@ -25,6 +25,7 @@ def primer(
     lc_features=[],
     host_features=[],
     num_sims=0,
+    preprocessed_df=None,
 ):
     """Assemble input feature vectors (and MC replicas) for a query object.
     
@@ -55,6 +56,9 @@ def primer(
         Names of host galaxy feature columns to extract.
     num_sims : int, default 0
         Number of Monte Carlo perturbations for uncertainty propagation.
+    preprocessed_df : pandas.DataFrame | None, default None
+        Pre-processed dataframe with imputed features. If provided, this is used 
+        instead of loading and processing the raw dataset bank.
         
     Returns
     -------
@@ -121,10 +125,20 @@ def primer(
 
         # Check if ztf_id is in dataset bank
         try:
-            df_bank = pd.read_csv(dataset_bank_path)
-            if 'ZTFID' in df_bank.columns:
-                df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
-            df_bank = df_bank.set_index("ztf_object_id", drop=True)
+            if preprocessed_df is not None:
+                df_bank = preprocessed_df.copy()
+                # Make sure we have ztf_object_id as expected
+                if 'ZTFID' in df_bank.columns:
+                    df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+                if 'ztf_object_id' not in df_bank.columns:
+                    raise ValueError("preprocessed_df must contain a 'ztf_object_id' column")
+                df_bank = df_bank.set_index("ztf_object_id", drop=True)
+            else:
+                df_bank = pd.read_csv(dataset_bank_path, low_memory=False)
+                # Normalize column names - make sure we use ztf_object_id consistently
+                if 'ZTFID' in df_bank.columns:
+                    df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+                df_bank = df_bank.set_index("ztf_object_id", drop=True)
 
             # Check to make sure all features are in the dataset bank
             missing_cols = [col for col in feature_names if col not in df_bank.columns]
@@ -155,6 +169,7 @@ def primer(
                     path_to_dataset_bank=dataset_bank_path,
                     save_timeseries=save_timeseries,
                     swapped_host=host_loop,
+                    preprocessed_df=preprocessed_df,
                 )
 
         # If ztf_id is not in dataset bank...
@@ -172,6 +187,7 @@ def primer(
                 path_to_dataset_bank=dataset_bank_path,
                 save_timeseries=save_timeseries,
                 swapped_host=host_loop,
+                preprocessed_df=preprocessed_df,
             )
 
             if host_loop:

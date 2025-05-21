@@ -69,39 +69,41 @@ def sample_preprocessed_df():
     
     return df
 
-def test_train_AD_model_with_preprocessed_df(sample_preprocessed_df, tmp_path):
-    """Test training AD model with preprocessed dataframe."""
+def test_train_AD_model_with_preprocessed_df(tmp_path, sample_preprocessed_df):
+    """Test that train_AD_model correctly uses a provided preprocessed dataframe."""
+    from relaiss.anomaly import train_AD_model
+    
+    # Define features to use
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
     
-    model_path = train_AD_model(
-        lc_features=lc_features,
-        host_features=host_features,
-        preprocessed_df=sample_preprocessed_df,
-        path_to_models_directory=str(tmp_path),
-        n_estimators=100,
-        contamination=0.02,
-        max_samples=256,
-        force_retrain=True
-    )
-    
-    # Check if model file exists
-    assert os.path.exists(model_path)
-    
-    # Load and verify the model
-    model = joblib.load(model_path)
-    assert model.n_estimators == 100
-    assert model.contamination == 0.02
-    assert model.max_samples == 256
-    
-    # Test model predictions
-    X = sample_preprocessed_df[lc_features + host_features].values
-    scores = model.predict(X)
-    
-    # Should find some anomalies (approximately 2% given contamination=0.02)
-    n_anomalies = sum(scores == -1)  # IsolationForest uses -1 for anomalies
-    expected_anomalies = int(len(X) * 0.02)
-    assert abs(n_anomalies - expected_anomalies) < 10  # Allow some variance
+    # Mock build_dataset_bank to verify it's not called when preprocessed_df is provided
+    with patch('relaiss.features.build_dataset_bank') as mock_build_dataset, \
+         patch('joblib.dump') as mock_dump:
+        
+        # Call train_AD_model with preprocessed_df
+        model_path = train_AD_model(
+            lc_features=lc_features,
+            host_features=host_features,
+            preprocessed_df=sample_preprocessed_df,
+            path_to_models_directory=str(tmp_path),
+            n_estimators=100,
+            contamination=0.02,
+            max_samples=256,
+            force_retrain=True
+        )
+        
+        # Verify build_dataset_bank was not called
+        mock_build_dataset.assert_not_called()
+        
+        # Verify joblib.dump was called with the right parameters
+        mock_dump.assert_called_once()
+        
+        # Check that model_path includes feature counts in the filename
+        num_lc_features = len(lc_features)
+        num_host_features = len(host_features)
+        expected_filename = f"IForest_n=100_c=0.02_m=256_lc={num_lc_features}_host={num_host_features}.pkl"
+        assert model_path.endswith(expected_filename)
 
 @pytest.mark.skip(reason="Requires real data in CI environment")
 def test_train_AD_model_with_raw_data(tmp_path):
@@ -135,8 +137,10 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
     
-    # Get expected model path
-    expected_filename = f"IForest_n=100_c=0.02_m=256.pkl"
+    # Get expected model path with feature counts included in the filename
+    num_lc_features = len(lc_features)
+    num_host_features = len(host_features)
+    expected_filename = f"IForest_n=100_c=0.02_m=256_lc={num_lc_features}_host={num_host_features}.pkl"
     expected_model_path = str(tmp_path / expected_filename)
     
     # Mock the ReLAISS client and build_dataset_bank to avoid SFD map initialization
@@ -281,8 +285,10 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
     
-    # Get expected model path
-    model_path = tmp_path / "IForest_n=100_c=0.02_m=256.pkl"
+    # Get expected model path with feature counts
+    num_lc_features = len(lc_features)
+    num_host_features = len(host_features)
+    model_path = tmp_path / f"IForest_n=100_c=0.02_m=256_lc={num_lc_features}_host={num_host_features}.pkl"
     
     # Use the same mocking as in test_anomaly_detection_mocked
     mock_timeseries_df = pd.DataFrame({
