@@ -143,10 +143,22 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
     expected_filename = f"IForest_n=100_c=0.02_m=256_lc={num_lc_features}_host={num_host_features}.pkl"
     expected_model_path = str(tmp_path / expected_filename)
     
-    # Mock the ReLAISS client and build_dataset_bank to avoid SFD map initialization
+    # Mock the ReLAISS client, build_dataset_bank, and SFDMap to avoid using real dust maps
     with patch('relaiss.relaiss.ReLAISS') as mock_client_class, \
          patch('relaiss.features.build_dataset_bank', return_value=sample_preprocessed_df), \
+         patch('sfdmap2.sfdmap.SFDMap') as mock_sfdmap, \
+         patch('dust_extinction.parameter_averages.G23') as mock_g23, \
          patch('joblib.dump') as mock_dump:
+        
+        # Configure mock SFDMap to avoid file access
+        mock_map = MagicMock()
+        mock_map.ebv.return_value = 0.05  # Mock E(B-V) value
+        mock_sfdmap.return_value = mock_map
+        
+        # Configure mock extinction model
+        mock_ext_model = MagicMock()
+        mock_ext_model.extinguish.return_value = 0.9  # 10% extinction
+        mock_g23.return_value = mock_ext_model
         
         # Configure mock client
         mock_client = MagicMock()
@@ -160,6 +172,7 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
             lc_features=lc_features,
             host_features=host_features,
             path_to_dataset_bank=str(mock_bank_path),
+            path_to_sfd_folder=str(tmp_path),  # Just use tmp_path as mock SFD folder
             path_to_models_directory=str(tmp_path),
             n_estimators=100,
             contamination=0.02,
