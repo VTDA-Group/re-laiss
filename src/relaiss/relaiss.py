@@ -435,21 +435,7 @@ class ReLAISS:
         true_and_mc_feat_arrs_l = [primer_dict["locus_feat_arr"]] + primer_dict["locus_feat_arrs_mc_l"]
         neighbor_dist_dict = {}
 
-        # Diagnostic: Print reference bank stats
-        print("\n=== DIAGNOSTIC: REFERENCE BANK STATS ===")
-        print(f"Reference bank shape: {bank_feat_arr.shape}")
-        print(f"Reference bank mean: {np.mean(bank_feat_arr, axis=0)[:5]}...")
-        print(f"Reference bank std: {np.std(bank_feat_arr, axis=0)[:5]}...")
-        print(f"Scaled reference bank mean: {np.mean(bank_feat_arr_scaled, axis=0)[:5]}...")
-        print(f"Scaled reference bank std: {np.std(bank_feat_arr_scaled, axis=0)[:5]}...")
-
         for i, locus_feat_arr in enumerate(true_and_mc_feat_arrs_l):
-            # Diagnostic: Print query vector stats
-            print(f"\n=== DIAGNOSTIC: QUERY VECTOR {i} STATS ===")
-            print(f"Raw query vector: {locus_feat_arr[:5]}...")
-            print(f"Raw query vector shape: {locus_feat_arr.shape}")
-            print(f"Raw query vector stats - min: {np.min(locus_feat_arr)}, max: {np.max(locus_feat_arr)}, mean: {np.mean(locus_feat_arr)}")
-            
             # Always scale the vector, regardless of its source
             # This ensures it matches the scale of the vectors in the index
             if not self.use_pca:
@@ -457,8 +443,17 @@ class ReLAISS:
                 n_lc = len(self.lc_features)
                 locus_feat_arr = locus_feat_arr.copy()  # Make a copy to avoid modifying original
                 # Only upweight if we have light curve features
-                if not np.all(np.isnan(locus_feat_arr[:n_lc])):
-                    locus_feat_arr[:n_lc] *= weight_lc_feats_factor
+                try:
+                    # Check if all values are NaN, but only if they're numerical
+                    if not np.all(np.isnan(locus_feat_arr[:n_lc])):
+                        locus_feat_arr[:n_lc] *= weight_lc_feats_factor
+                except (TypeError, ValueError):
+                    # If we can't check for NaN (non-numerical values), try to upweight anyway
+                    # This will fail gracefully if the values can't be multiplied
+                    try:
+                        locus_feat_arr[:n_lc] *= weight_lc_feats_factor
+                    except:
+                        print("Warning: Could not apply light curve weighting to non-numerical features")
             
             scaled = self.scaler.transform([locus_feat_arr])[0]
             print(f"Scaled query vector: {scaled[:5]}...")
