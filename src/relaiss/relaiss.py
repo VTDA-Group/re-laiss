@@ -38,17 +38,17 @@ SFD_FILES = ["SFD_dust_4096_ngp.fits", "SFD_dust_4096_sgp.fits"]
 
 def download_sfd_files(path_to_sfd_folder):
     """Download SFD dust map files if they don't exist.
-    
+
     This function downloads the necessary SFD dust map files from the GitHub repository
     if they are not already present in the specified directory. These files are required
     for extinction corrections in the reLAISS pipeline.
-    
+
     Parameters
     ----------
     path_to_sfd_folder : str | Path
         Directory where SFD files should be stored. The function will create this
         directory if it doesn't exist.
-        
+
     Notes
     -----
     Downloads two files:
@@ -57,7 +57,7 @@ def download_sfd_files(path_to_sfd_folder):
     """
     path_to_sfd_folder = Path(path_to_sfd_folder)
     path_to_sfd_folder.mkdir(parents=True, exist_ok=True)
-    
+
     for filename in SFD_FILES:
         filepath = path_to_sfd_folder / filename
         if not filepath.exists():
@@ -65,18 +65,18 @@ def download_sfd_files(path_to_sfd_folder):
             url = urljoin(SFD_URL, filename)
             response = requests.get(url, stream=True)
             response.raise_for_status()
-            
+
             with open(filepath, 'wb') as f:
                 shutil.copyfileobj(response.raw, f)
             print(f"Downloaded {filename} to {filepath}")
 
 class ReLAISS:
     """A class for finding similar transients using the reLAISS algorithm.
-    
+
     This class implements the reLAISS (Reference Lightcurve and Host Galaxy Similarity Search)
     algorithm for finding similar astronomical transients based on their lightcurves
     and host galaxy properties.
-    
+
     Attributes
     ----------
     bank_csv : Path
@@ -104,10 +104,10 @@ class ReLAISS:
     hydrated_bank : pd.DataFrame
         The preprocessed dataframe with all features imputed and engineered.
     """
-    
+
     def __init__(self) -> None:
         """Initialize a new ReLAISS instance.
-        
+
         Creates a new ReLAISS instance with uninitialized attributes. These will be
         set when load_reference() is called.
         """
@@ -126,12 +126,12 @@ class ReLAISS:
 
     def get_preprocessed_dataframe(self) -> pd.DataFrame:
         """Get the preprocessed dataframe with all features imputed and engineered.
-        
+
         Returns
         -------
         pandas.DataFrame
             The preprocessed dataframe with all features imputed and engineered.
-            
+
         Raises
         ------
         AttributeError
@@ -151,6 +151,7 @@ class ReLAISS:
         weight_lc: float = 1.0,
         use_pca: bool = False,
         num_pca_components: Optional[int] = None,
+        force_recreation_of_index: bool = False,
     ) -> None:
         """Load the shipped 20‑k reference bank and build (or load) its ANNOY index.
 
@@ -168,6 +169,8 @@ class ReLAISS:
             Project to PCA space before indexing.
         num_pca_components : int | None
             PCA dimensionality; *None* keeps 99 % variance.
+        force_recreation_of_index : bool, default False
+            Whether to force recreation of the index.
         """
         from . import constants as _c
         from .utils import (
@@ -179,7 +182,7 @@ class ReLAISS:
 
         # Download SFD files if they don't exist
         download_sfd_files(path_to_sfd_folder)
-        
+
         lc_features = list(lc_features) if lc_features is not None else _c.lc_features_const.copy()
         host_features = list(host_features) if host_features is not None else _c.raw_host_features_const.copy()
 
@@ -191,7 +194,7 @@ class ReLAISS:
             gdown.download(url, str(bank_path), quiet=False)
 
         raw_df_bank = pd.read_csv(bank_path, low_memory=False)
-        
+
         # Generate cache key for preprocessed data
         cache_params = {
             'bank_hash': compute_dataframe_hash(raw_df_bank),
@@ -208,17 +211,17 @@ class ReLAISS:
         hydrated_bank = load_cached_dataframe(cache_key)
         if hydrated_bank is None:
             print("Preprocessing reference bank (this may take a while)...")
-            
+
             # Rename ZTFID to ztf_object_id if it exists
             if 'ZTFID' in raw_df_bank.columns:
                 raw_df_bank = raw_df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
-            
+
             hydrated_bank = build_dataset_bank(
                 raw_df_bank,
                 building_entire_df_bank=True,
                 path_to_sfd_folder=path_to_sfd_folder
             )
-            
+
             # Cache the preprocessed data
             print("Caching preprocessed reference bank...")
             cache_dataframe(hydrated_bank, cache_key)
@@ -256,7 +259,7 @@ class ReLAISS:
                 num_trees=1000,
                 path_to_index_directory=str(index_dir),
                 weight_lc_feats_factor=weight_lc,
-                force_recreation_of_index=True
+                force_recreation_of_index=force_recreation_of_index
             )
         else:
             print("Loading existing search index...")
@@ -299,7 +302,7 @@ class ReLAISS:
 
     def find_neighbors(
         self,
-        ztf_object_id,
+        ztf_object_id=None,
         theorized_lightcurve_df=None,
         host_ztf_id=None,
         path_to_dataset_bank: str | Path | None = None,
@@ -316,17 +319,18 @@ class ReLAISS:
         path_to_figure_directory="../figures",
     ):
         """Query the ANNOY index and plot nearest-neighbor diagnostics.
-        
+
         This method finds the most similar transients to the input transient in the
         reference dataset bank. It can use either a real transient (specified by
         ztf_object_id) or a theorized lightcurve.
-        
+
         Parameters
         ----------
-        ztf_object_id : str
-            ZTF ID of the transient to find neighbors for.
+        ztf_object_id : str | None, default None
+            ZTF ID of the transient to find neighbors for. If None, theorized_lightcurve_df must be provided.
         theorized_lightcurve_df : pandas.DataFrame | None, default None
             Optional simulated lightcurve to use instead of a real transient.
+            Required if ztf_object_id is None.
         host_ztf_id : str | None, default None
             ZTF ID of the host galaxy to swap into the input transient.
         path_to_dataset_bank : str | Path | None, default None
@@ -353,7 +357,7 @@ class ReLAISS:
             Whether to save the diagnostic plots to disk.
         path_to_figure_directory : str | Path, default "../figures"
             Directory to save figures in if save_figures is True.
-            
+
         Returns
         -------
         pandas.DataFrame | None
@@ -367,7 +371,7 @@ class ReLAISS:
             - spec_cls: Spectral classification
             - z: Redshift
             Returns None if suggest_neighbor_num is True.
-            
+
         Raises
         ------
         ValueError
@@ -426,42 +430,83 @@ class ReLAISS:
         )
         # Use the saved scaler instead of creating a new one
         bank_feat_arr_scaled = self.scaler.transform(bank_feat_arr)
-        
+
         # Process all feature arrays (true + MC)
         true_and_mc_feat_arrs_l = [primer_dict["locus_feat_arr"]] + primer_dict["locus_feat_arrs_mc_l"]
         neighbor_dist_dict = {}
-        
-        for locus_feat_arr in true_and_mc_feat_arrs_l:
-            scaled = self.scaler.transform([locus_feat_arr])[0]
+
+        # Diagnostic: Print reference bank stats
+        print("\n=== DIAGNOSTIC: REFERENCE BANK STATS ===")
+        print(f"Reference bank shape: {bank_feat_arr.shape}")
+        print(f"Reference bank mean: {np.mean(bank_feat_arr, axis=0)[:5]}...")
+        print(f"Reference bank std: {np.std(bank_feat_arr, axis=0)[:5]}...")
+        print(f"Scaled reference bank mean: {np.mean(bank_feat_arr_scaled, axis=0)[:5]}...")
+        print(f"Scaled reference bank std: {np.std(bank_feat_arr_scaled, axis=0)[:5]}...")
+
+        for i, locus_feat_arr in enumerate(true_and_mc_feat_arrs_l):
+            # Diagnostic: Print query vector stats
+            print(f"\n=== DIAGNOSTIC: QUERY VECTOR {i} STATS ===")
+            print(f"Raw query vector: {locus_feat_arr[:5]}...")
+            print(f"Raw query vector shape: {locus_feat_arr.shape}")
+            print(f"Raw query vector stats - min: {np.min(locus_feat_arr)}, max: {np.max(locus_feat_arr)}, mean: {np.mean(locus_feat_arr)}")
             
+            # Always scale the vector, regardless of its source
+            # This ensures it matches the scale of the vectors in the index
             if not self.use_pca:
-                # Upweight lightcurve features before PCA
+                # Upweight lightcurve features before scaling
                 n_lc = len(self.lc_features)
-                scaled = scaled.reshape(1, -1)  # Make it 2D
-                scaled[:, :n_lc] *= weight_lc_feats_factor
-                scaled = scaled[0]  # Back to 1D
+                locus_feat_arr = locus_feat_arr.copy()  # Make a copy to avoid modifying original
+                # Only upweight if we have light curve features
+                if not np.all(np.isnan(locus_feat_arr[:n_lc])):
+                    locus_feat_arr[:n_lc] *= weight_lc_feats_factor
             
+            scaled = self.scaler.transform([locus_feat_arr])[0]
+            print(f"Scaled query vector: {scaled[:5]}...")
+            print(f"Scaled query vector stats - min: {np.min(scaled)}, max: {np.max(scaled)}, mean: {np.mean(scaled)}")
+
+            if not self.use_pca:
+                # Diagnostic: Print weighted query vector stats
+                print(f"Weighted query vector: {scaled[:5]}...")
+                print(f"Weighted query vector stats - min: {np.min(scaled)}, max: {np.max(scaled)}, mean: {np.mean(scaled)}")
+
             if self.use_pca:
                 # Transform the scaled locus_feat_arr using the same PCA model
                 random_seed = 88
                 pca = PCA(n_components=self.pca.n_components_, random_state=random_seed)
-                
+
                 # pca needs to be fit first to the same data as trained
                 trained_PCA_feat_arr_scaled_pca = pca.fit_transform(bank_feat_arr_scaled)
                 scaled = pca.transform([scaled])[0]
-            
-            
+                
+                # Diagnostic: Print PCA-transformed query vector stats
+                print(f"PCA-transformed query vector: {scaled[:5]}...")
+                print(f"PCA-transformed query vector stats - min: {np.min(scaled)}, max: {np.max(scaled)}, mean: {np.mean(scaled)}")
+
+            # Diagnostic: Print ANNOY index info
+            print(f"\n=== DIAGNOSTIC: ANNOY INDEX INFO ===")
+            print(f"ANNOY index dimension: {self._index.f}")
+            print(f"ANNOY index size: {self._index.get_n_items()}")
+            print(f"Query vector dimension: {len(scaled)}")
+            print(f"Requesting {n+10} neighbors with search_k={search_k}")
+
             # Get neighbors for this feature array
+            # Make sure to request enough neighbors (n+1) since we might need to remove the query object
             idxs, dists = self._index.get_nns_by_vector(
-                scaled, n=n+1, search_k=search_k, include_distances=True
+                scaled, n=n+10, search_k=search_k, include_distances=True
             )
+            
+            # Diagnostic: Print raw results
+            print(f"\n=== DIAGNOSTIC: SEARCH RESULTS ===")
+            print(f"Found {len(idxs)} neighbors")
+            print(f"First 10 distances: {dists[:10]}")
+
             # Store neighbors and distances in dictionary
             for idx, dist in zip(idxs, dists):
                 if idx in neighbor_dist_dict:
                     neighbor_dist_dict[idx].append(dist)
                 else:
                     neighbor_dist_dict[idx] = [dist]
-        
+
         # Pick n neighbors with lowest median distance
         if len(primer_dict["locus_feat_arrs_mc_l"]) != 0:
             print(f"\nNumber of unique neighbors found through Monte Carlo: {len(neighbor_dist_dict)}.")
@@ -471,6 +516,12 @@ class ReLAISS:
         top_n_neighbors = sorted_neighbors[:n+1]
         idxs = [idx for idx, _ in top_n_neighbors]
         dists = [dist for _, dist in top_n_neighbors]
+        
+        # Diagnostic: Print number of neighbors after sorting by median distance
+        print(f"\n=== DIAGNOSTIC: SORTED NEIGHBORS STATS ===")
+        print(f"Number of unique neighbors after sorting: {len(sorted_neighbors)}")
+        print(f"Number of top_n_neighbors selected: {len(top_n_neighbors)}")
+        print(f"Top neighbor distances: {dists[:min(10, len(dists))]}")
 
         # Remove input transient if it's in the results
         input_idx = None
@@ -482,10 +533,20 @@ class ReLAISS:
             print(f"\nFound input transient at index {input_idx}, removing it...")
             del idxs[input_idx]
             del dists[input_idx]
+            
+        # Diagnostic: Print number of neighbors after removing input transient
+        print(f"\n=== DIAGNOSTIC: AFTER REMOVING INPUT TRANSIENT ===")
+        print(f"Number of neighbors after removing input: {len(idxs)}")
+        print(f"Distances after removing input: {dists[:min(10, len(dists))]}")
 
         # Always return n neighbors
         idxs = idxs[:n]
         dists = dists[:n]
+        
+        # Diagnostic: Print final number of neighbors
+        print(f"\n=== DIAGNOSTIC: FINAL NEIGHBORS ===")
+        print(f"Final number of neighbors: {len(idxs)}")
+        print(f"Final distances: {dists}")
 
         ann_end_time = time.time()
         ann_elapsed_time = ann_end_time - start_time
@@ -660,7 +721,7 @@ class ReLAISS:
                     else:
                         print(f"Warning: Could not find host coordinates for {ztfid}")
                         continue
-                    
+
                     host_ra_l.append(host_ra)
                     host_dec_l.append(host_dec)
                 except KeyError:
@@ -706,10 +767,10 @@ class ReLAISS:
         # Store neighbors and return
         storage = []
         neighbor_num = 1
-        
+
         # Define ALeRCE links for each neighbor
         ann_alerce_links = [f"https://alerce.online/object/{ztf_id}" for ztf_id in neighbor_ztfids]
-        
+
         for al, iau_name, spec_cls, z, dist, neighbor_ztfid in zip(
             ann_alerce_links, tns_ann_names, tns_ann_classes, tns_ann_zs, dists, neighbor_ztfids
         ):

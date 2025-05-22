@@ -681,10 +681,17 @@ def extract_lc_and_host_features(
             )
             lc_and_hosts_df = pd.concat([lc_timeseries_feat_df, hosts_df], axis=1)
         else:
-            lc_timeseries_feat_df.loc[0, "ztf_object_id"] = (
-                ztf_id if theorized_lightcurve_df is None else "theorized_lightcurve"
-            )
-            lc_and_hosts_df = pd.concat([lc_timeseries_feat_df, hosts_df], axis=1)
+            if swapped_host:
+                # For swapped host, create a single row with the host features
+                lc_timeseries_feat_df = pd.DataFrame(columns=lc_timeseries_feat_df.columns)
+                lc_timeseries_feat_df.loc[0] = np.nan
+                lc_timeseries_feat_df.loc[0, "ztf_object_id"] = ztf_id
+                lc_and_hosts_df = pd.concat([lc_timeseries_feat_df, hosts_df], axis=1)
+            else:
+                lc_timeseries_feat_df.loc[0, "ztf_object_id"] = (
+                    ztf_id if theorized_lightcurve_df is None else "theorized_lightcurve"
+                )
+                lc_and_hosts_df = pd.concat([lc_timeseries_feat_df, hosts_df], axis=1)
 
         lc_and_hosts_df = lc_and_hosts_df.set_index("ztf_object_id")
 

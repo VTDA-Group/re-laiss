@@ -115,7 +115,7 @@ def train_AD_model(
     
     # Save model
     joblib.dump(model, model_path)
-    print(f"Saved trained model to {model_path}")
+    print(f"Model saved to: {model_path}")
     
     return model_path
 
@@ -211,6 +211,9 @@ def anomaly_detection(
         building_for_AD=True,
         preprocessed_df=preprocessed_df,
     )
+
+    # Add mjd_cutoff column for plotting
+    timeseries_df['mjd_cutoff'] = timeseries_df['ant_mjd']
 
     if host_ztf_id_to_swap_in is not None:
         # Swap in the host galaxy

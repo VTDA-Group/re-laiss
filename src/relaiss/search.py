@@ -147,7 +147,11 @@ def primer(
                     f"KeyError: The following columns are not in the raw data provided: {missing_cols}. Abort!"
                 )
 
-            locus_feat_arr = df_bank.loc[ztf_id]
+            # Extract the feature array - this data is ALREADY in the right format for the index
+            locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
+            if not isinstance(locus_feat_arr, np.ndarray):
+                # If we got a Series, convert to ndarray
+                locus_feat_arr = locus_feat_arr.values
 
             print(f"{ztf_id} is in dataset_bank.")
             ztf_id_in_dataset_bank = True
@@ -239,15 +243,67 @@ def primer(
 
     if host_ztf_id is None:
         # Not swapping out host, use features from lightcurve ztf_id
-        locus_feat_series = lc_locus_feat_arr[feature_names]
+        if lc_ztf_id_in_dataset_bank:
+            # If the data came from the dataset bank, it's already correctly formatted
+            locus_feat_arr = lc_locus_feat_arr
+            # Also create locus_feat_series for the DataFrame creation later
+            if isinstance(lc_locus_feat_arr, pd.Series):
+                locus_feat_series = lc_locus_feat_arr
+            else:
+                # If it's already a numpy array, wrap it in a series with the right index
+                locus_feat_series = pd.Series(lc_locus_feat_arr, index=feature_names)
+        else:
+            # Otherwise, we need to extract the right subset in the right order
+            if isinstance(lc_locus_feat_arr, pd.Series):
+                locus_feat_series = lc_locus_feat_arr[feature_names]
+            else:
+                # If it's already a numpy array, wrap it in a series with the right index
+                locus_feat_series = pd.Series(lc_locus_feat_arr, index=feature_names)
     else:
         # Create new feature array with mixed lc and host features
-        subset_lc = lc_locus_feat_arr[lc_features]
-        subset_host = host_locus_feat_arr[host_features]
-        locus_feat_series = pd.concat([subset_lc, subset_host], axis=0)
+        if lc_ztf_id_in_dataset_bank and host_ztf_id_in_dataset_bank:
+            # If both sources are from the dataset bank, we need to combine them carefully
+            # Convert to Series if they aren't already
+            if not isinstance(lc_locus_feat_arr, pd.Series):
+                lc_locus_feat_arr = pd.Series(lc_locus_feat_arr, index=feature_names)
+            if not isinstance(host_locus_feat_arr, pd.Series):
+                host_locus_feat_arr = pd.Series(host_locus_feat_arr, index=feature_names)
+                
+            subset_lc = lc_locus_feat_arr[lc_features]
+            subset_host = host_locus_feat_arr[host_features]
+            locus_feat_series = pd.concat([subset_lc, subset_host])
+            
+            # Make sure features are in the right order
+            locus_feat_series = locus_feat_series.reindex(feature_names)
+        else:
+            # Handle the case where one or both aren't from the dataset bank
+            if isinstance(lc_locus_feat_arr, pd.Series):
+                subset_lc = lc_locus_feat_arr[lc_features]
+            else:
+                # If it's already a numpy array, create a Series with the right index
+                subset_lc = pd.Series(lc_locus_feat_arr, index=lc_features)
+                
+            if isinstance(host_locus_feat_arr, pd.Series):
+                subset_host = host_locus_feat_arr[host_features]
+            else:
+                # If it's already a numpy array, create a Series with the right index
+                subset_host = pd.Series(host_locus_feat_arr, index=host_features)
+                
+            # If light curve features are empty, fill with NaN
+            if subset_lc.empty:
+                subset_lc = pd.Series(index=lc_features, data=np.nan)
+                
+            locus_feat_series = pd.concat([subset_lc, subset_host])
+            
+            # Make sure features are in the right order
+            locus_feat_series = locus_feat_series.reindex(feature_names)
 
     # Ensure clean 1-row DataFrame in correct order
-    locus_feat_df = pd.DataFrame([locus_feat_series[feature_names]])
+    locus_feat_df = pd.DataFrame([locus_feat_series])
+    # Add error columns to the DataFrame
+    for feat_name, error_name in err_lookup.items():
+        if feat_name in feature_names:
+            locus_feat_df[error_name] = locus_feat_series[error_name]
 
     # Create Monte Carlo copies locus_feat_arrays_l
     np.random.seed(888)
@@ -271,8 +327,19 @@ def primer(
 
     locus_feat_df.drop_duplicates(inplace=True)
 
-    locus_feat_arr = locus_feat_df[feature_names].values
-    locus_feat_arr = locus_feat_arr.flatten()
+    # Make sure locus_feat_arr is a 1D array with the features in the right order
+    if lc_ztf_id_in_dataset_bank and host_ztf_id is None:
+        # When using data directly from the dataset bank without host swapping, 
+        # just use the array directly to avoid any transformations
+        if isinstance(locus_feat_arr, np.ndarray):
+            # It's already a numpy array in the right format
+            pass
+        else:
+            # Make sure it's a 1D array with the right feature order
+            locus_feat_arr = locus_feat_df[feature_names].values.flatten()
+    else:
+        # In all other cases, make sure we get a 1D array with the right feature order
+        locus_feat_arr = locus_feat_df[feature_names].values.flatten()
 
     output_dict = {
         # host data is optional, it's only if the user decides to swap in a new host
