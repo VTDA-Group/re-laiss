@@ -264,7 +264,7 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path, setu
         path_to_figure_directory=str(tmp_path / "figures"),
         save_figures=True,
         n_estimators=100,
-        contamination=0.02,
+      contamination=0.02,
         max_samples=256,
         force_retrain=False
     )
