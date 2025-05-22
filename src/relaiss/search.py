@@ -300,6 +300,8 @@ def primer(
 
     # Ensure clean 1-row DataFrame in correct order
     locus_feat_df = pd.DataFrame([locus_feat_series])
+    # Define err_lookup before using it
+    err_lookup = constants.err_lookup.copy()
     # Add error columns to the DataFrame
     for feat_name, error_name in err_lookup.items():
         if feat_name in feature_names:
@@ -307,7 +309,6 @@ def primer(
 
     # Create Monte Carlo copies locus_feat_arrays_l
     np.random.seed(888)
-    err_lookup = constants.err_lookup.copy()
     locus_feat_arrs_mc_l = []
     for _ in range(num_sims):
         locus_feat_df_for_mc = locus_feat_df.copy()
