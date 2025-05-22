@@ -13,9 +13,8 @@ def test_find_neighbors_dataframe():
     # Test basic neighbor finding
     df = client.find_neighbors(ztf_object_id="ZTF21abbzjeq", n=5, search_k=10000)
     assert isinstance(df, pd.DataFrame)
-    assert len(df) >= 1  # Accept at least 1 neighbor instead of requiring exactly 5
-    if len(df) > 1:
-        assert np.all(df["dist"].values[:-1] <= df["dist"].values[1:])
+    assert len(df) == 5 
+    assert np.all(df["dist"].values[:-1] <= df["dist"].values[1:])
     
     # Test with different n values
     df_large = client.find_neighbors(ztf_object_id="ZTF21abbzjeq", n=10, search_k=10000)
