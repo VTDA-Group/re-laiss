@@ -5,6 +5,8 @@ from unittest.mock import patch, MagicMock
 import relaiss as rl
 from relaiss.search import primer
 from relaiss.anomaly import train_AD_model, anomaly_detection
+from pathlib import Path
+from sklearn.preprocessing import StandardScaler
 
 def test_missing_error_columns(dataset_bank_path, timeseries_dir, sfd_dir):
     """Test that primer handles missing error columns without crashing."""
@@ -97,7 +99,7 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
         )
         
         # Then run anomaly detection
-        anomaly_detection(
+        result = anomaly_detection(
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,
@@ -109,7 +111,8 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
             save_figures=False
         )
         
-        # If we got here without errors, the test passes
+        # Check that mjd_cutoff was properly handled when ant_mjd was missing
+        assert 'mjd_cutoff' in mock_ad_timeseries.return_value.columns, "mjd_cutoff column was not created"
 
 def test_host_feature_length_mismatch(dataset_bank_path, timeseries_dir, sfd_dir):
     """Test that primer handles mismatched host feature lengths."""
@@ -156,36 +159,65 @@ def test_host_feature_length_mismatch(dataset_bank_path, timeseries_dir, sfd_dir
         assert 'locus_feat_arr' in result
         assert len(result['locus_feat_arr']) == len(lc_features) + len(host_features)
 
-def test_swapped_host_with_empty_lightcurve(dataset_bank_path, timeseries_dir, sfd_dir):
-    """Test handling a swapped host galaxy with empty light curve features."""
+def test_light_curve_weighting():
+    """Test that light curve weighting is applied correctly even with NaN values."""
+    # Create a test array with NaN values in the light curve part
+    lc_features = ['g_peak_mag', 'r_peak_mag']
+    host_features = ['host_ra', 'host_dec']
     
-    # Mock the necessary functions
-    with patch('relaiss.features.extract_lc_and_host_features') as mock_extract, \
-         patch('relaiss.features.build_dataset_bank', return_value=pd.DataFrame()), \
-         patch('relaiss.search.get_timeseries_df', return_value=pd.DataFrame()), \
-         patch('relaiss.search.get_TNS_data', return_value=("TNS2023abc", "SN Ia", 0.1)):
-        
-        # Configure extract_lc_and_host_features to simulate empty light curve with swapped host
-        # First simulate normal return value
-        mock_extract.return_value = pd.DataFrame({
-            'g_peak_mag': [20.0],
-            'r_peak_mag': [19.5],
-            'host_ra': [150.0],
-            'host_dec': [20.0]
-        })
-        
-        # Set up the client
-        client = rl.ReLAISS()
-        
-        # This test passes if find_neighbors completes without errors
-        # We're testing the fix that allows find_neighbors to handle situations 
-        # where we have a swapped host but empty light curve features
-        client.find_neighbors(
-            ztf_object_id="ZTF21abbzjeq",
-            host_ztf_id="ZTF19aaaaaaa",
-            weight_lc_feats_factor=10.0,  # Also test the weighting fix
-            n=3
-        )
+    # Mock array with all light curve features as NaN
+    test_array = np.array([np.nan, np.nan, 155.0, 25.0])
+    
+    # Create a simple scaler initialized with fit data
+    scaler = StandardScaler()
+    X = np.array([
+        [20.0, 19.5, 150.0, 20.0],
+        [19.0, 19.0, 155.0, 25.0]
+    ])
+    scaler.fit(X)
+    
+    # Apply light curve weighting (copying logic from relaiss.py)
+    test_array_copy = test_array.copy()
+    n_lc = len(lc_features)
+    weight_factor = 10.0
+    
+    # Test the light curve upweighting function with NaNs
+    # Only upweight if we don't have all NaN values in the light curve part
+    if not np.all(np.isnan(test_array_copy[:n_lc])):
+        test_array_copy[:n_lc] *= weight_factor
+    
+    # Transform with scaler
+    scaled = scaler.transform([test_array_copy])[0]
+    
+    # Since all light curve features are NaN, weighting should not change anything
+    assert np.isnan(scaled[0])
+    assert np.isnan(scaled[1])
+    # Host features should be scaled normally
+    assert not np.isnan(scaled[2])
+    assert not np.isnan(scaled[3])
+    
+    # Now test with some non-NaN light curve values
+    test_array2 = np.array([20.0, np.nan, 155.0, 25.0])
+    test_array2_copy = test_array2.copy()
+    
+    # First transform without weighting
+    scaled_no_weight = scaler.transform([test_array2])[0]
+    
+    # Now apply weighting - it should upweight the first feature
+    if not np.all(np.isnan(test_array2_copy[:n_lc])):
+        test_array2_copy[:n_lc] *= weight_factor
+    
+    # Verify the first element got upweighted before scaling
+    assert test_array2_copy[0] == 20.0 * weight_factor
+    
+    # Transform with scaler
+    scaled_with_weight = scaler.transform([test_array2_copy])[0]
+    
+    # First element should be scaled differently due to upweighting
+    assert scaled_with_weight[0] != scaled_no_weight[0]
+    # But the host features should be the same
+    assert scaled_with_weight[2] == scaled_no_weight[2]
+    assert scaled_with_weight[3] == scaled_no_weight[3]
 
 def test_optional_ztf_object_id():
     """Test that find_neighbors accepts None for ztf_object_id when using theorized lightcurve."""

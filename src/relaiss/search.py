@@ -330,7 +330,15 @@ def primer(
 
         for feat_name, error_name in err_lookup.items():
             if feat_name in feature_names:
+                # Skip if error column doesn't exist in the dataframe
+                if error_name not in locus_feat_df_for_mc.columns:
+                    continue
+                
                 std = locus_feat_df_for_mc[error_name]
+                # Skip if std is NaN
+                if std.isna().any():
+                    continue
+                
                 noise = np.random.normal(0, std)
                 if not np.isnan(noise):
                     locus_feat_df_for_mc[feat_name] = (
