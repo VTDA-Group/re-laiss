@@ -305,7 +305,9 @@ def primer(
     # Add error columns to the DataFrame
     for feat_name, error_name in err_lookup.items():
         if feat_name in feature_names:
-            locus_feat_df[error_name] = locus_feat_series[error_name]
+            # Only try to access error column if it exists in the series
+            if error_name in locus_feat_series:
+                locus_feat_df[error_name] = locus_feat_series[error_name]
 
     # Create Monte Carlo copies locus_feat_arrays_l
     np.random.seed(888)

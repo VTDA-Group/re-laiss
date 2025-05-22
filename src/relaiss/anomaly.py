@@ -213,7 +213,14 @@ def anomaly_detection(
     )
 
     # Add mjd_cutoff column for plotting
-    timeseries_df['mjd_cutoff'] = timeseries_df['ant_mjd']
+    if 'ant_mjd' in timeseries_df.columns:
+        timeseries_df['mjd_cutoff'] = timeseries_df['ant_mjd']
+    else:
+        # If ant_mjd doesn't exist, try to use mjd_cutoff if it exists,
+        # otherwise create a dummy column with indices
+        if 'mjd_cutoff' not in timeseries_df.columns:
+            print("Warning: ant_mjd column not found, using indices for mjd_cutoff")
+            timeseries_df['mjd_cutoff'] = range(len(timeseries_df))
 
     if host_ztf_id_to_swap_in is not None:
         # Swap in the host galaxy
