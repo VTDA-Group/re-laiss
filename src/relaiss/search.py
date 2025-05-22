@@ -287,6 +287,19 @@ def primer(
                 subset_host = host_locus_feat_arr[host_features]
             else:
                 # If it's already a numpy array, create a Series with the right index
+                # First make sure array length matches index length
+                if len(host_locus_feat_arr) != len(host_features):
+                    # Extract only the values that correspond to host_features
+                    # This handles the case when host_locus_feat_arr might contain values for all features
+                    if len(host_locus_feat_arr) == len(feature_names):
+                        # If the full array size matches all features, slice it to get only host features
+                        start_idx = len(lc_features)
+                        host_locus_feat_arr = host_locus_feat_arr[start_idx:start_idx+len(host_features)]
+                    else:
+                        # If we can't determine the correct slicing, log warning and use placeholder values
+                        print(f"Warning: Host feature array length ({len(host_locus_feat_arr)}) doesn't match host_features length ({len(host_features)}). Using placeholder values.")
+                        host_locus_feat_arr = np.full(len(host_features), np.nan)
+                
                 subset_host = pd.Series(host_locus_feat_arr, index=host_features)
                 
             # If light curve features are empty, fill with NaN
