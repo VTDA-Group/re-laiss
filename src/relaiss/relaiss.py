@@ -455,7 +455,20 @@ class ReLAISS:
                     except:
                         print("Warning: Could not apply light curve weighting to non-numerical features")
             
-            scaled = self.scaler.transform([locus_feat_arr])[0]
+            # Handle different dimensions properly
+            if isinstance(locus_feat_arr, np.ndarray) and locus_feat_arr.ndim > 1:
+                # If already 2D, just pass to scaler directly
+                print(f"Processing 2D array with shape {locus_feat_arr.shape}")
+                if locus_feat_arr.shape[0] == 1:
+                    # If it's a single row, use it directly
+                    scaled = self.scaler.transform(locus_feat_arr)[0]
+                else:
+                    # Otherwise, take the first row
+                    scaled = self.scaler.transform(locus_feat_arr[0:1])[0]
+            else:
+                # If 1D, wrap in list to make 2D for scaler
+                scaled = self.scaler.transform([locus_feat_arr])[0]
+            
             print(f"Scaled query vector: {scaled[:5]}...")
             print(f"Scaled query vector stats - min: {np.min(scaled)}, max: {np.max(scaled)}, mean: {np.mean(scaled)}")
 
@@ -477,24 +490,12 @@ class ReLAISS:
                 print(f"PCA-transformed query vector: {scaled[:5]}...")
                 print(f"PCA-transformed query vector stats - min: {np.min(scaled)}, max: {np.max(scaled)}, mean: {np.mean(scaled)}")
 
-            # Diagnostic: Print ANNOY index info
-            print(f"\n=== DIAGNOSTIC: ANNOY INDEX INFO ===")
-            print(f"ANNOY index dimension: {self._index.f}")
-            print(f"ANNOY index size: {self._index.get_n_items()}")
-            print(f"Query vector dimension: {len(scaled)}")
-            print(f"Requesting {n+10} neighbors with search_k={search_k}")
-
             # Get neighbors for this feature array
             # Make sure to request enough neighbors (n+1) since we might need to remove the query object
             idxs, dists = self._index.get_nns_by_vector(
                 scaled, n=n+10, search_k=search_k, include_distances=True
             )
             
-            # Diagnostic: Print raw results
-            print(f"\n=== DIAGNOSTIC: SEARCH RESULTS ===")
-            print(f"Found {len(idxs)} neighbors")
-            print(f"First 10 distances: {dists[:10]}")
-
             # Store neighbors and distances in dictionary
             for idx, dist in zip(idxs, dists):
                 if idx in neighbor_dist_dict:
@@ -512,12 +513,6 @@ class ReLAISS:
         idxs = [idx for idx, _ in top_n_neighbors]
         dists = [dist for _, dist in top_n_neighbors]
         
-        # Diagnostic: Print number of neighbors after sorting by median distance
-        print(f"\n=== DIAGNOSTIC: SORTED NEIGHBORS STATS ===")
-        print(f"Number of unique neighbors after sorting: {len(sorted_neighbors)}")
-        print(f"Number of top_n_neighbors selected: {len(top_n_neighbors)}")
-        print(f"Top neighbor distances: {dists[:min(10, len(dists))]}")
-
         # Remove input transient if it's in the results
         input_idx = None
         for i, idx in enumerate(idxs):
@@ -528,21 +523,11 @@ class ReLAISS:
             print(f"\nFound input transient at index {input_idx}, removing it...")
             del idxs[input_idx]
             del dists[input_idx]
-            
-        # Diagnostic: Print number of neighbors after removing input transient
-        print(f"\n=== DIAGNOSTIC: AFTER REMOVING INPUT TRANSIENT ===")
-        print(f"Number of neighbors after removing input: {len(idxs)}")
-        print(f"Distances after removing input: {dists[:min(10, len(dists))]}")
 
         # Always return n neighbors
         idxs = idxs[:n]
         dists = dists[:n]
         
-        # Diagnostic: Print final number of neighbors
-        print(f"\n=== DIAGNOSTIC: FINAL NEIGHBORS ===")
-        print(f"Final number of neighbors: {len(idxs)}")
-        print(f"Final distances: {dists}")
-
         ann_end_time = time.time()
         ann_elapsed_time = ann_end_time - start_time
         elapsed_time = time.time() - start_time

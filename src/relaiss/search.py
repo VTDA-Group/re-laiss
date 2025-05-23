@@ -347,7 +347,12 @@ def primer(
                 else:
                     pass
 
-        locus_feat_arrs_mc_l.append(locus_feat_df_for_mc[feature_names].values)
+        # Make sure we get a 1D array with the right feature order
+        mc_array = locus_feat_df_for_mc[feature_names].values
+        # Flatten if necessary - DataFrame.values can return a 2D array
+        if mc_array.ndim > 1:
+            mc_array = mc_array.flatten()
+        locus_feat_arrs_mc_l.append(mc_array)
 
     locus_feat_df.drop_duplicates(inplace=True)
 
