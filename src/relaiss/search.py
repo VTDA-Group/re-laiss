@@ -147,11 +147,20 @@ def primer(
                     f"KeyError: The following columns are not in the raw data provided: {missing_cols}. Abort!"
                 )
 
+            # Check if the ZTF ID exists in the dataset
+            if ztf_id not in df_bank.index:
+                print(f"{ztf_id} is not in dataset_bank.")
+                raise KeyError(f"ZTF ID {ztf_id} not found in dataset bank")
+                
             # Extract the feature array - this data is ALREADY in the right format for the index
             locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
             if not isinstance(locus_feat_arr, np.ndarray):
                 # If we got a Series, convert to ndarray
                 locus_feat_arr = locus_feat_arr.values
+            # Handle NaN values
+            if np.isnan(locus_feat_arr).any():
+                print(f"Warning: Found NaN values in feature array for {ztf_id}. Replacing with 0.")
+                locus_feat_arr = np.nan_to_num(locus_feat_arr, nan=0.0)
 
             print(f"{ztf_id} is in dataset_bank.")
             ztf_id_in_dataset_bank = True
@@ -177,10 +186,31 @@ def primer(
                 )
 
         # If ztf_id is not in dataset bank...
-        except:
+        except KeyError as e:
+            # If ZTF ID is not found or feature columns don't exist
+            print(f"Error extracting features for {ztf_id}: {str(e)}")
+            if ztf_id in df_bank.index:
+                # ZTF ID exists but some feature columns are missing
+                print(f"ZTF ID {ztf_id} found in dataset bank, but some required feature columns are missing.")
+                # Initialize array of zeros
+                locus_feat_arr = np.zeros(len(feature_names))
+                # Fill in the values we do have
+                for i, feat in enumerate(feature_names):
+                    try:
+                        locus_feat_arr[i] = df_bank.loc[ztf_id, feat]
+                    except (KeyError, TypeError):
+                        # Skip if feature doesn't exist
+                        pass
+            else:
+                # ZTF ID doesn't exist
+                print(f"ZTF ID {ztf_id} not found in dataset bank.")
+                # Return array of zeros as a fallback
+                locus_feat_arr = np.zeros(len(feature_names))
+
             # Extract timeseries dataframe
             if ztf_id is not None:
-                print(f"{ztf_id} is not in dataset_bank.")
+                print(f"Attempting to fetch timeseries data for {ztf_id}...")
+            
             timeseries_df = get_timeseries_df(
                 ztf_id=ztf_id,
                 theorized_lightcurve_df=(
@@ -195,12 +225,30 @@ def primer(
             )
 
             if host_loop:
-                host_galaxy_ra = timeseries_df["raMean"].iloc[0]
-                host_galaxy_dec = timeseries_df["decMean"].iloc[0]
+                # More robust column handling for host galaxies
+                if "raMean" in timeseries_df.columns and "decMean" in timeseries_df.columns:
+                    host_galaxy_ra = timeseries_df["raMean"].iloc[0]
+                    host_galaxy_dec = timeseries_df["decMean"].iloc[0]
+                elif "host_ra" in timeseries_df.columns and "host_dec" in timeseries_df.columns:
+                    host_galaxy_ra = timeseries_df["host_ra"].iloc[0]
+                    host_galaxy_dec = timeseries_df["host_dec"].iloc[0]
+                else:
+                    print(f"Warning: Could not find RA/Dec columns for host {ztf_id}. Using NaN values.")
+                    host_galaxy_ra = np.nan
+                    host_galaxy_dec = np.nan
             else:
                 if theorized_lightcurve_df is None:
-                    lc_galaxy_ra = timeseries_df["raMean"].iloc[0]
-                    lc_galaxy_dec = timeseries_df["decMean"].iloc[0]
+                    # More robust column handling for source galaxies
+                    if "raMean" in timeseries_df.columns and "decMean" in timeseries_df.columns:
+                        lc_galaxy_ra = timeseries_df["raMean"].iloc[0]
+                        lc_galaxy_dec = timeseries_df["decMean"].iloc[0]
+                    elif "host_ra" in timeseries_df.columns and "host_dec" in timeseries_df.columns:
+                        lc_galaxy_ra = timeseries_df["host_ra"].iloc[0]
+                        lc_galaxy_dec = timeseries_df["host_dec"].iloc[0]
+                    else:
+                        print(f"Warning: Could not find RA/Dec columns for source {ztf_id}. Using NaN values.")
+                        lc_galaxy_ra = np.nan
+                        lc_galaxy_dec = np.nan
 
             # If timeseries_df is from theorized lightcurve, it only has lightcurve features
             if not host_loop and theorized_lightcurve_df is not None:

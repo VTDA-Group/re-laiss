@@ -217,10 +217,20 @@ def anomaly_detection(
         timeseries_df['mjd_cutoff'] = timeseries_df['ant_mjd']
     else:
         # If ant_mjd doesn't exist, try to use mjd_cutoff if it exists,
-        # otherwise create a dummy column with indices
+        # otherwise extract the MJD range from the reference data 
         if 'mjd_cutoff' not in timeseries_df.columns:
-            print("Warning: ant_mjd column not found, using indices for mjd_cutoff")
-            timeseries_df['mjd_cutoff'] = range(len(timeseries_df))
+            print("Warning: ant_mjd column not found, using estimated MJD values based on light curve")
+            # Get the reference light curve data
+            locus = antares_client.search.get_by_ztf_object_id(ztf_object_id=transient_ztf_id)
+            df_ref = locus.timeseries.to_pandas()
+            
+            # Extract MJD range
+            min_mjd = df_ref['ant_mjd'].min()
+            max_mjd = df_ref['ant_mjd'].max()
+            
+            # Create evenly spaced values across the actual observed time range
+            # This ensures alignment with the light curve plot
+            timeseries_df['mjd_cutoff'] = np.linspace(min_mjd, max_mjd, len(timeseries_df))
 
     if host_ztf_id_to_swap_in is not None:
         # Swap in the host galaxy
@@ -351,6 +361,7 @@ def check_anom_and_plot(
     print("max_anom_score", round(max_anom_score, 1))
     print("num_anom_epochs", num_anom_epochs, "\n")
 
+    # Get the light curve data
     df_ref = ref_info.timeseries.to_pandas()
 
     df_ref_g = df_ref[(df_ref.ant_passband == "g") & (~df_ref.ant_mag.isna())]
@@ -358,6 +369,13 @@ def check_anom_and_plot(
 
     mjd_idx_at_min_mag_r_ref = df_ref_r[["ant_mag"]].reset_index().idxmin().ant_mag
     mjd_idx_at_min_mag_g_ref = df_ref_g[["ant_mag"]].reset_index().idxmin().ant_mag
+
+    # Calculate the actual range of MJD values in the light curve for setting axis limits
+    min_mjd = min(df_ref_g['ant_mjd'].min(), df_ref_r['ant_mjd'].min())
+    max_mjd = max(df_ref_g['ant_mjd'].max(), df_ref_r['ant_mjd'].max())
+    # Add a small margin
+    mjd_margin = (max_mjd - min_mjd) * 0.05
+    mjd_range = (min_mjd - mjd_margin, max_mjd + mjd_margin)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(7, 10))
     ax1.invert_yaxis()
@@ -377,45 +395,77 @@ def check_anom_and_plot(
         c="g",
         label=r"ZTF-$g$",
     )
+    
+    # Set the x-axis range to match the light curve data
+    ax1.set_xlim(mjd_range)
+    
+    # Only plot the anomaly data points that fall within the light curve's time range
+    mask = (timeseries_df_full.mjd_cutoff >= mjd_range[0]) & (timeseries_df_full.mjd_cutoff <= mjd_range[1])
+    
+    # Check if we have any data points after applying the mask
+    if mask.any():
+        anomaly_mjd = timeseries_df_full.mjd_cutoff[mask]
+        anomaly_prob_normal = pred_prob_anom[mask, 0]
+        anomaly_prob_anomaly = pred_prob_anom[mask, 1]
+    else:
+        # If no data points fall within the range, create some placeholder data
+        # This avoids plotting errors while still making it clear no data is present
+        print("Warning: No anomaly detection data points fall within the light curve's time range")
+        # Create a few points spanning the range for an empty plot
+        anomaly_mjd = np.array([mjd_range[0], mjd_range[1]])
+        anomaly_prob_normal = np.array([50, 50])  # Neutral values
+        anomaly_prob_anomaly = np.array([50, 50])
+        
+        # Add a note to the plot
+        ax2.text(0.5, 0.5, "No anomaly data in this time range", 
+                 horizontalalignment='center', verticalalignment='center',
+                 transform=ax2.transAxes, fontsize=14, color='gray',
+                 bbox=dict(facecolor='white', alpha=0.8))
+
     if anom_idx_is == True:
-        ax1.axvline(
-            x=timeseries_df_full[
-                timeseries_df_full.obs_num == anom_idx
-            ].mjd_cutoff.values[0],
-            label="Tag anomalous",
-            color="dodgerblue",
-            ls="--",
-        )
-        mjd_cross_thresh = round(
-            timeseries_df_full[
-                timeseries_df_full.obs_num == anom_idx
-            ].mjd_cutoff.values[0],
-            3,
-        )
+        # Get the MJD value associated with the anomaly
+        mjd_cross_thresh = timeseries_df_full[
+            timeseries_df_full.obs_num == anom_idx
+        ].mjd_cutoff.values[0]
+        
+        # Check if the anomaly MJD is within the visible range
+        if mjd_range[0] <= mjd_cross_thresh <= mjd_range[1]:
+            ax1.axvline(
+                x=mjd_cross_thresh,
+                label="Tag anomalous",
+                color="dodgerblue",
+                ls="--",
+            )
+            
+            mjd_cross_thresh = round(mjd_cross_thresh, 3)
+            
+            # Calculate relative position for text
+            mjd_anom_per = (mjd_cross_thresh - mjd_range[0]) / (mjd_range[1] - mjd_range[0])
+            plt.text(
+                mjd_anom_per,
+                -0.075,
+                f"t$_a$ = {int(mjd_cross_thresh)}",
+                horizontalalignment="center",
+                verticalalignment="center",
+                transform=ax1.transAxes,
+                fontsize=16,
+                color="dodgerblue",
+            )
+            print("MJD crossed thresh:", mjd_cross_thresh)
+        else:
+            print(f"Warning: Anomaly at MJD {mjd_cross_thresh:.1f} is outside the plotted range {mjd_range}")
+            anom_idx_is = False
 
-        left, right = ax1.get_xlim()
-        mjd_anom_per = (mjd_cross_thresh - left) / (right - left)
-        plt.text(
-            mjd_anom_per + 0.073,
-            -0.075,
-            f"t$_a$ = {int(mjd_cross_thresh)}",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax1.transAxes,
-            fontsize=16,
-            color="dodgerblue",
-        )
-        print("MJD crossed thresh:", mjd_cross_thresh)
-
+    # Plot anomaly probabilities using the filtered values within the light curve's time range
     ax2.plot(
-        timeseries_df_full.mjd_cutoff,
-        pred_prob_anom[:, 0],
+        anomaly_mjd,
+        anomaly_prob_normal,
         drawstyle="steps",
         label=r"$p(Normal)$",
     )
     ax2.plot(
-        timeseries_df_full.mjd_cutoff,
-        pred_prob_anom[:, 1],
+        anomaly_mjd,
+        anomaly_prob_anomaly,
         drawstyle="steps",
         label=r"$p(Anomaly)$",
     )

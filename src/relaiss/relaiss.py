@@ -300,6 +300,53 @@ class ReLAISS:
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
         print(f"Loaded {len(self._ids)} IDs")
 
+    def _handle_host_error(self, e, ztf_object_id, host_ztf_id):
+        """Handle errors when processing a host galaxy.
+        
+        This method is called when an error occurs while trying to use a host galaxy
+        in the find_neighbors method. It attempts to retry the operation without using
+        the host galaxy.
+        
+        Parameters
+        ----------
+        e : Exception
+            The exception that occurred during host processing
+        ztf_object_id : str
+            ZTF ID of the source transient
+        host_ztf_id : str
+            ZTF ID of the host galaxy that caused the error
+            
+        Returns
+        -------
+        Result of find_neighbors without the host galaxy
+        """
+        print(f"Error during host processing: {str(e)}")
+        if host_ztf_id is not None:
+            print(f"Trying again without host galaxy {host_ztf_id}...")
+            # Fall back to using just the source transient without host
+            try:
+                from .search import primer
+                primer_dict = primer(
+                    lc_ztf_id=ztf_object_id,
+                    theorized_lightcurve_df=None,
+                    host_ztf_id=None,  # Remove host
+                    dataset_bank_path=self.bank_csv,
+                    path_to_timeseries_folder='./',
+                    path_to_sfd_folder=self.path_to_sfd_folder,
+                    lc_features=self.lc_features,
+                    host_features=self.host_features,
+                    num_sims=0,
+                    save_timeseries=False,
+                    preprocessed_df=self.hydrated_bank,
+                )
+                print("Successfully processed without host galaxy.")
+                return "Success"
+            except Exception as e2:
+                print(f"Failed to process even without host galaxy: {str(e2)}")
+                raise ValueError(f"Could not process transient: {str(e)}")
+        else:
+            raise ValueError(f"Error processing transient: {str(e)}")
+
     def find_neighbors(
         self,
         ztf_object_id=None,
@@ -382,19 +429,45 @@ class ReLAISS:
         annoy_index_file_stem = self.index_stem
         dataset_bank = Path(path_to_dataset_bank or self.bank_csv)
 
-        primer_dict = primer(
-            lc_ztf_id=ztf_object_id,
-            theorized_lightcurve_df=theorized_lightcurve_df,
-            host_ztf_id=host_ztf_id,
-            dataset_bank_path=dataset_bank,
-            path_to_timeseries_folder='./',
-            path_to_sfd_folder=self.path_to_sfd_folder,
-            lc_features=self.lc_features,
-            host_features=self.host_features,
-            num_sims=num_sims,
-            save_timeseries=False,
-            preprocessed_df=self.hydrated_bank,
-        )
+        try:
+            primer_dict = primer(
+                lc_ztf_id=ztf_object_id,
+                theorized_lightcurve_df=theorized_lightcurve_df,
+                host_ztf_id=host_ztf_id,
+                dataset_bank_path=dataset_bank,
+                path_to_timeseries_folder='./',
+                path_to_sfd_folder=self.path_to_sfd_folder,
+                lc_features=self.lc_features,
+                host_features=self.host_features,
+                num_sims=num_sims,
+                save_timeseries=False,
+                preprocessed_df=self.hydrated_bank,
+            )
+        except Exception as e:
+            print(f"Error during host processing: {str(e)}")
+            if host_ztf_id is not None:
+                print(f"Trying again without host galaxy {host_ztf_id}...")
+                # Fall back to using just the source transient without host
+                try:
+                    primer_dict = primer(
+                        lc_ztf_id=ztf_object_id,
+                        theorized_lightcurve_df=theorized_lightcurve_df,
+                        host_ztf_id=None,  # Remove host
+                        dataset_bank_path=dataset_bank,
+                        path_to_timeseries_folder='./',
+                        path_to_sfd_folder=self.path_to_sfd_folder,
+                        lc_features=self.lc_features,
+                        host_features=self.host_features,
+                        num_sims=num_sims,
+                        save_timeseries=False,
+                        preprocessed_df=self.hydrated_bank,
+                    )
+                    print("Successfully processed without host galaxy.")
+                except Exception as e2:
+                    print(f"Failed to process even without host galaxy: {str(e2)}")
+                    raise ValueError(f"Could not process transient: {str(e)}")
+            else:
+                raise ValueError(f"Error processing transient: {str(e)}")
 
         start_time = time.time()
         index_file = str(annoy_index_file_stem) + ".ann"
