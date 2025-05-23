@@ -214,7 +214,7 @@ def anomaly_detection(
 
     # Add mjd_cutoff column for plotting
     if 'ant_mjd' in timeseries_df.columns:
-        timeseries_df['mjd_cutoff'] = timeseries_df['ant_mjd']
+        timeseries_df.loc[:, 'mjd_cutoff'] = timeseries_df['ant_mjd']
     else:
         # If ant_mjd doesn't exist, extract MJD values from the reference data
         print("Warning: ant_mjd column not found, using MJD values from light curve")
@@ -233,7 +233,7 @@ def anomaly_detection(
             mjd_values = mjd_values[:len(timeseries_df)]
             
         # Assign actual MJD values to the anomaly detection points
-        timeseries_df['mjd_cutoff'] = mjd_values
+        timeseries_df.loc[:, 'mjd_cutoff'] = mjd_values
 
     if host_ztf_id_to_swap_in is not None:
         # Swap in the host galaxy
@@ -331,36 +331,47 @@ def check_anom_and_plot(
     anom_obj_df = timeseries_df_features_only
 
     # Get anomaly scores from decision_function (-ve = anomalous, +ve = normal)
-    # Convert to probabilities (0-100 scale)
     scores = clf.decision_function(anom_obj_df)
-    # Normalize scores to [0,1] - more negative means more anomalous
-    # Convert to a format compatible with the rest of the function: [[normal_prob, anomaly_prob], ...]
+    
+    # Convert scores to probabilities (0-100 scale)
+    # For isolation forest: negative scores = anomalies, positive scores = normal
     pred_prob_anom = np.zeros((len(scores), 2))
     for i, score in enumerate(scores):
-        # Convert decision scores to probability-like values (0-100 scale)
-        # Lower scores = more anomalous
-        anomaly_prob = 100 * (1 / (1 + np.exp(score)))  # Sigmoid function to convert to [0,100]
-        normal_prob = 100 - anomaly_prob
+        # For each point, we want to consider the cumulative history up to that point
+        # This ensures smoother predictions by considering temporal context
+        if i > 0:
+            # Average the current score with previous scores to smooth transitions
+            # but weight recent scores more heavily
+            alpha = 0.7  # Weight for current score vs history
+            score = alpha * score + (1 - alpha) * scores[i-1]
+        
+        # Convert to probability using sigmoid
+        normal_prob = 100 * (1 / (1 + np.exp(-score)))
+        anomaly_prob = 100 - normal_prob
         pred_prob_anom[i, 0] = round(normal_prob, 1)  # normal probability
         pred_prob_anom[i, 1] = round(anomaly_prob, 1)  # anomaly probability
     
     num_anom_epochs = len(np.where(pred_prob_anom[:, 1] >= anom_thresh)[0])
 
-    try:
-        anom_idx = timeseries_df_full.iloc[
-            np.where(pred_prob_anom[:, 1] >= anom_thresh)[0][0]
-        ].obs_num
-        anom_idx_is = True
-        print("Anomalous during timeseries!")
-
-    except:
+    if num_anom_epochs > 0:
+        try:
+            # Get the first anomalous index
+            first_anom_idx = np.where(pred_prob_anom[:, 1] >= anom_thresh)[0][0]
+            # Get the corresponding observation number
+            anom_idx = timeseries_df_full.iloc[first_anom_idx]['obs_num']
+            anom_idx_is = True
+            print("Anomalous during timeseries!")
+        except (IndexError, KeyError): # Handle both array index and missing column errors
+            anom_idx_is = False
+            print(f"Could not identify specific anomalous observation index, though {num_anom_epochs} anomalous epochs found.")
+    else:
         print(
             f"Prediction doesn't exceed anom_threshold of {anom_thresh}% for {input_ztf_id}."
             + (f" with host from {swapped_host_ztf_id}" if swapped_host_ztf_id else "")
         )
         anom_idx_is = False
 
-    max_anom_score = max(pred_prob_anom[:, 1])
+    max_anom_score = np.max(pred_prob_anom[:, 1]) if pred_prob_anom.size > 0 else 0
     print("max_anom_score", round(max_anom_score, 1))
     print("num_anom_epochs", num_anom_epochs, "\n")
 
