@@ -302,11 +302,11 @@ class ReLAISS:
 
     def _handle_host_error(self, e, ztf_object_id, host_ztf_id):
         """Handle errors when processing a host galaxy.
-        
+
         This method is called when an error occurs while trying to use a host galaxy
         in the find_neighbors method. It attempts to retry the operation without using
         the host galaxy.
-        
+
         Parameters
         ----------
         e : Exception
@@ -315,7 +315,7 @@ class ReLAISS:
             ZTF ID of the source transient
         host_ztf_id : str
             ZTF ID of the host galaxy that caused the error
-            
+
         Returns
         -------
         Result of find_neighbors without the host galaxy
@@ -527,7 +527,7 @@ class ReLAISS:
                         locus_feat_arr[:n_lc] *= weight_lc_feats_factor
                     except:
                         print("Warning: Could not apply light curve weighting to non-numerical features")
-            
+
             # Handle different dimensions properly
             if isinstance(locus_feat_arr, np.ndarray) and locus_feat_arr.ndim > 1:
                 # If already 2D, just pass to scaler directly
@@ -541,14 +541,6 @@ class ReLAISS:
             else:
                 # If 1D, wrap in list to make 2D for scaler
                 scaled = self.scaler.transform([locus_feat_arr])[0]
-            
-            print(f"Scaled query vector: {scaled[:5]}...")
-            print(f"Scaled query vector stats - min: {np.min(scaled)}, max: {np.max(scaled)}, mean: {np.mean(scaled)}")
-
-            if not self.use_pca:
-                # Diagnostic: Print weighted query vector stats
-                print(f"Weighted query vector: {scaled[:5]}...")
-                print(f"Weighted query vector stats - min: {np.min(scaled)}, max: {np.max(scaled)}, mean: {np.mean(scaled)}")
 
             if self.use_pca:
                 # Transform the scaled locus_feat_arr using the same PCA model
@@ -558,17 +550,13 @@ class ReLAISS:
                 # pca needs to be fit first to the same data as trained
                 trained_PCA_feat_arr_scaled_pca = pca.fit_transform(bank_feat_arr_scaled)
                 scaled = pca.transform([scaled])[0]
-                
-                # Diagnostic: Print PCA-transformed query vector stats
-                print(f"PCA-transformed query vector: {scaled[:5]}...")
-                print(f"PCA-transformed query vector stats - min: {np.min(scaled)}, max: {np.max(scaled)}, mean: {np.mean(scaled)}")
 
             # Get neighbors for this feature array
             # Make sure to request enough neighbors (n+1) since we might need to remove the query object
             idxs, dists = self._index.get_nns_by_vector(
                 scaled, n=n+10, search_k=search_k, include_distances=True
             )
-            
+
             # Store neighbors and distances in dictionary
             for idx, dist in zip(idxs, dists):
                 if idx in neighbor_dist_dict:
@@ -585,7 +573,7 @@ class ReLAISS:
         top_n_neighbors = sorted_neighbors[:n+1]
         idxs = [idx for idx, _ in top_n_neighbors]
         dists = [dist for _, dist in top_n_neighbors]
-        
+
         # Remove input transient if it's in the results
         input_idx = None
         for i, idx in enumerate(idxs):
@@ -600,7 +588,7 @@ class ReLAISS:
         # Always return n neighbors
         idxs = idxs[:n]
         dists = dists[:n]
-        
+
         ann_end_time = time.time()
         ann_elapsed_time = ann_end_time - start_time
         elapsed_time = time.time() - start_time

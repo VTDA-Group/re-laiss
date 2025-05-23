@@ -271,7 +271,7 @@ def anomaly_detection(
             swapped_host_ztf_id=host_ztf_id_to_swap_in,
             input_spec_cls=tns_cls,
             input_spec_z=tns_z,
-            anom_thresh=50,
+            anom_thresh=70,
             timeseries_df_full=timeseries_df,
             timeseries_df_features_only=timeseries_df_filt_feats,
             ref_info=input_lightcurve_locus,
@@ -312,9 +312,9 @@ def check_anom_and_plot(
     input_spec_z : float | str | None
         Redshift for title.
     anom_thresh : float
-        Probability (%) above which an epoch is flagged anomalous.
+        Legacy parameter, now overridden to 70%.
     timeseries_df_full : pandas.DataFrame
-        Hydrated LC + host features, including ``obs_num`` and ``mjd_cutoff``.
+        Hydrated LC + host features, including ``mjd_cutoff``.
     timeseries_df_features_only : pandas.DataFrame
         Same rows but feature columns only (classifier input).
     ref_info : antares_client.objects.Locus
@@ -328,52 +328,97 @@ def check_anom_and_plot(
     -------
     None
     """
-    anom_obj_df = timeseries_df_features_only
+    # Fix SettingWithCopyWarning by using .copy() and .loc
+    timeseries_df_full = timeseries_df_full.copy()
 
     # Get anomaly scores from decision_function (-ve = anomalous, +ve = normal)
-    scores = clf.decision_function(anom_obj_df)
+    scores = clf.decision_function(timeseries_df_features_only)
     
     # Convert scores to probabilities (0-100 scale)
-    # For isolation forest: negative scores = anomalies, positive scores = normal
     pred_prob_anom = np.zeros((len(scores), 2))
     for i, score in enumerate(scores):
-        # For each point, we want to consider the cumulative history up to that point
-        # This ensures smoother predictions by considering temporal context
         if i > 0:
-            # Average the current score with previous scores to smooth transitions
-            # but weight recent scores more heavily
-            alpha = 0.7  # Weight for current score vs history
+            alpha = 0.7
             score = alpha * score + (1 - alpha) * scores[i-1]
-        
-        # Convert to probability using sigmoid
         normal_prob = 100 * (1 / (1 + np.exp(-score)))
         anomaly_prob = 100 - normal_prob
-        pred_prob_anom[i, 0] = round(normal_prob, 1)  # normal probability
-        pred_prob_anom[i, 1] = round(anomaly_prob, 1)  # anomaly probability
-    
-    num_anom_epochs = len(np.where(pred_prob_anom[:, 1] >= anom_thresh)[0])
+        pred_prob_anom[i, 0] = round(normal_prob, 1)
+        pred_prob_anom[i, 1] = round(anomaly_prob, 1)
 
-    if num_anom_epochs > 0:
-        try:
-            # Get the first anomalous index
-            first_anom_idx = np.where(pred_prob_anom[:, 1] >= anom_thresh)[0][0]
-            # Get the corresponding observation number
-            anom_idx = timeseries_df_full.iloc[first_anom_idx]['obs_num']
+    # Apply smoothing to probabilities - we'll use these smoothed values for everything
+    pred_prob_anom_smoothed = pd.DataFrame(pred_prob_anom).rolling(window=3, min_periods=1, center=True).mean().values
+
+    # --- Use weighted average approach for anomaly detection ---
+    anom_scores = pred_prob_anom_smoothed[:, 1]  # Use smoothed anomaly probabilities
+    anom_thresh = 70.0  # Set fixed threshold at 70%
+    min_sustained = 3  # Minimum consecutive points to consider
+    min_delta = 2.0   # Minimum increase from baseline
+    found_anom = False
+    anom_start_idx = None
+    
+    # First pass: find any periods above threshold
+    for i in range(len(anom_scores) - min_sustained + 1):
+        window = anom_scores[i:i+min_sustained]
+        baseline = np.mean(anom_scores[max(0, i-3):i]) if i > 0 else anom_scores[0]
+        
+        # Calculate weighted average of scores (more weight to higher scores)
+        weights = np.array([0.2, 0.35, 0.45])  # More weight to recent points
+        weighted_avg = np.average(window, weights=weights)
+        
+        # Calculate consistency score (penalize high variance)
+        score_variance = np.std(window)
+        consistency_penalty = min(score_variance / 10.0, 2.0)  # Cap the penalty
+        
+        # Adjusted score that accounts for:
+        # 1. Weighted average of the anomaly scores
+        # 2. How much it increased from baseline
+        # 3. Consistency of the scores
+        adjusted_score = weighted_avg - consistency_penalty
+        baseline_increase = weighted_avg - baseline
+        
+        if (adjusted_score >= anom_thresh + 2.0 and  # Must be well above threshold
+            baseline_increase >= min_delta and        # Must be significant increase
+            all(x >= anom_thresh - 5 for x in window)):  # Allow small dips
+            found_anom = True
+            anom_start_idx = i
+            anom_mjds = timeseries_df_full.mjd_cutoff.iloc[i:i+min_sustained].values
+            print(f"\nDEBUG: Analyzing potential anomaly:")
+            print(f"MJD range: {anom_mjds[0]:.1f} to {anom_mjds[-1]:.1f}")
+            print(f"Raw scores: {window}")
+            print(f"Weighted average: {weighted_avg:.1f}")
+            print(f"Score variance: {score_variance:.1f}")
+            print(f"Baseline: {baseline:.1f}")
+            print(f"Adjusted score: {adjusted_score:.1f}")
+            break
+
+    num_anom_epochs = min_sustained if found_anom else 0
+
+    if found_anom:
+        # Get the MJD values for the anomalous period
+        if 0 <= anom_start_idx < len(timeseries_df_full):
+            anom_mjds = timeseries_df_full.mjd_cutoff.iloc[anom_start_idx:anom_start_idx+min_sustained].values
+            print(f"\nSignificant anomalous behavior detected!")
+            print(f"Number of anomalous epochs: {num_anom_epochs}")
+            print(f"MJD range: {anom_mjds[0]:.1f} to {anom_mjds[-1]:.1f}")
             anom_idx_is = True
-            print("Anomalous during timeseries!")
-        except (IndexError, KeyError): # Handle both array index and missing column errors
+            mjd_cross_thresh = anom_mjds[0]  # Use start of anomalous period for plotting
+        else:
             anom_idx_is = False
-            print(f"Could not identify specific anomalous observation index, though {num_anom_epochs} anomalous epochs found.")
+            print(f"Warning: Anomaly index {anom_start_idx} out of bounds for DataFrame of length {len(timeseries_df_full)}")
     else:
-        print(
-            f"Prediction doesn't exceed anom_threshold of {anom_thresh}% for {input_ztf_id}."
-            + (f" with host from {swapped_host_ztf_id}" if swapped_host_ztf_id else "")
-        )
+        # Check if we had any moderately high scores
+        max_score = np.max(anom_scores)
+        if max_score >= 50.0:  # Show info for scores above 50% even if below 70% threshold
+            print(f"\nNote: Some epochs showed elevated scores (max: {max_score:.1f}%), "
+                  f"but did not reach the {anom_thresh}% threshold required for anomaly detection.")
+            print(f"Summary: No sustained anomalous behavior detected (max score: {max_score:.1f}, num_anom_epochs: {num_anom_epochs})")
+        else:
+            print(f"\nNo significant anomalous behavior detected for {input_ztf_id}"
+                  + (f" with host from {swapped_host_ztf_id}" if swapped_host_ztf_id else ""))
+            print(f"Summary: Normal behavior (max score: {max_score:.1f}, num_anom_epochs: {num_anom_epochs})")
         anom_idx_is = False
 
-    max_anom_score = np.max(pred_prob_anom[:, 1]) if pred_prob_anom.size > 0 else 0
-    print("max_anom_score", round(max_anom_score, 1))
-    print("num_anom_epochs", num_anom_epochs, "\n")
+    max_anom_score = np.max(anom_scores) if anom_scores.size > 0 else 0
 
     # Get the light curve data
     df_ref = ref_info.timeseries.to_pandas()
@@ -415,17 +460,13 @@ def check_anom_and_plot(
     
     # Only plot the anomaly data points that fall within the light curve's time range
     mask = (timeseries_df_full.mjd_cutoff >= mjd_range[0]) & (timeseries_df_full.mjd_cutoff <= mjd_range[1])
-    
-    # Check if we have any data points after applying the mask
     if mask.any():
         anomaly_mjd = timeseries_df_full.mjd_cutoff[mask]
-        anomaly_prob_normal = pred_prob_anom[mask, 0]
-        anomaly_prob_anomaly = pred_prob_anom[mask, 1]
+        anomaly_prob_normal = pred_prob_anom_smoothed[mask, 0]  # Use smoothed values
+        anomaly_prob_anomaly = pred_prob_anom_smoothed[mask, 1]  # Use smoothed values
     else:
         # If no data points fall within the range, create some placeholder data
-        # This avoids plotting errors while still making it clear no data is present
         print("Warning: No anomaly detection data points fall within the light curve's time range")
-        # Create a few points spanning the range for an empty plot
         anomaly_mjd = np.array([mjd_range[0], mjd_range[1]])
         anomaly_prob_normal = np.array([50, 50])  # Neutral values
         anomaly_prob_anomaly = np.array([50, 50])
@@ -437,23 +478,17 @@ def check_anom_and_plot(
                  bbox=dict(facecolor='white', alpha=0.8))
 
     if anom_idx_is == True:
-        # Get the MJD value associated with the anomaly
-        mjd_cross_thresh = timeseries_df_full[
-            timeseries_df_full.obs_num == anom_idx
-        ].mjd_cutoff.values[0]
-        
         # Check if the anomaly MJD is within the visible range
         if mjd_range[0] <= mjd_cross_thresh <= mjd_range[1]:
+            # Plot vertical lines for start and end of anomalous period
             ax1.axvline(
                 x=mjd_cross_thresh,
-                label="Tag anomalous",
+                label="Anomaly start",
                 color="dodgerblue",
                 ls="--",
             )
             
-            mjd_cross_thresh = round(mjd_cross_thresh, 3)
-            
-            # Calculate relative position for text
+            # Add text annotation
             mjd_anom_per = (mjd_cross_thresh - mjd_range[0]) / (mjd_range[1] - mjd_range[0])
             plt.text(
                 mjd_anom_per,
@@ -465,7 +500,6 @@ def check_anom_and_plot(
                 fontsize=16,
                 color="dodgerblue",
             )
-            print("MJD crossed thresh:", mjd_cross_thresh)
         else:
             print(f"Warning: Anomaly at MJD {mjd_cross_thresh:.1f} is outside the plotted range {mjd_range}")
             anom_idx_is = False

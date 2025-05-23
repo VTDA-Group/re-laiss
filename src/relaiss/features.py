@@ -537,8 +537,14 @@ def extract_lc_and_host_features(
     lc_timeseries_feat_df = pd.DataFrame(
         columns=["ztf_object_id"] + ["obs_num"] + ["mjd_cutoff"] + lc_col_names
     )
+    
+    # Keep track of cumulative peak magnitudes and times
+    g_peak_mag_cumulative = float('inf')
+    r_peak_mag_cumulative = float('inf')
+    g_peak_time_cumulative = None
+    r_peak_time_cumulative = None
+    
     for i in range(min_obs_count, len(lightcurve) + 1):
-
         lightcurve_subset = lightcurve.iloc[:i]
         time_mjd = lightcurve_subset["ant_mjd"].iloc[-1]
 
@@ -567,11 +573,30 @@ def extract_lc_and_host_features(
             engineered_lc_properties_df = extractor.extract_features(
                 return_uncertainty=True
             )
+            
+            # Update cumulative peak magnitudes and times
+            if engineered_lc_properties_df is not None:
+                current_g_peak = engineered_lc_properties_df['g_peak_mag'].iloc[0]
+                current_r_peak = engineered_lc_properties_df['r_peak_mag'].iloc[0]
+                
+                if current_g_peak < g_peak_mag_cumulative:
+                    g_peak_mag_cumulative = current_g_peak
+                    g_peak_time_cumulative = engineered_lc_properties_df['g_peak_time'].iloc[0]
+                    
+                if current_r_peak < r_peak_mag_cumulative:
+                    r_peak_mag_cumulative = current_r_peak
+                    r_peak_time_cumulative = engineered_lc_properties_df['r_peak_time'].iloc[0]
+                
+                # Update the dataframe with cumulative values
+                engineered_lc_properties_df['g_peak_mag'] = g_peak_mag_cumulative
+                engineered_lc_properties_df['r_peak_mag'] = r_peak_mag_cumulative
+                engineered_lc_properties_df['g_peak_time'] = g_peak_time_cumulative
+                engineered_lc_properties_df['r_peak_time'] = r_peak_time_cumulative
+                
         except:
             continue
 
-        if engineered_lc_properties_df is not None:
-
+        if engineered_lc_properties_df is not None and not engineered_lc_properties_df.isna().all(axis=None):
             engineered_lc_properties_df.insert(0, "mjd_cutoff", time_mjd)
             engineered_lc_properties_df.insert(0, "obs_num", int(i))
             engineered_lc_properties_df.insert(
@@ -583,10 +608,12 @@ def extract_lc_and_host_features(
             if lc_timeseries_feat_df.empty:
                 lc_timeseries_feat_df = engineered_lc_properties_df
             else:
-                lc_timeseries_feat_df = pd.concat(
-                    [lc_timeseries_feat_df, engineered_lc_properties_df],
-                    ignore_index=True,
-                )
+                # Only concat if not all-NA
+                if not engineered_lc_properties_df.isna().all(axis=None):
+                    lc_timeseries_feat_df = pd.concat(
+                        [lc_timeseries_feat_df, engineered_lc_properties_df],
+                        ignore_index=True,
+                    )
 
     end_time = time.time()
 
