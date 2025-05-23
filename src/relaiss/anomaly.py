@@ -216,21 +216,24 @@ def anomaly_detection(
     if 'ant_mjd' in timeseries_df.columns:
         timeseries_df['mjd_cutoff'] = timeseries_df['ant_mjd']
     else:
-        # If ant_mjd doesn't exist, try to use mjd_cutoff if it exists,
-        # otherwise extract the MJD range from the reference data 
-        if 'mjd_cutoff' not in timeseries_df.columns:
-            print("Warning: ant_mjd column not found, using estimated MJD values based on light curve")
-            # Get the reference light curve data
-            locus = antares_client.search.get_by_ztf_object_id(ztf_object_id=transient_ztf_id)
-            df_ref = locus.timeseries.to_pandas()
+        # If ant_mjd doesn't exist, extract MJD values from the reference data
+        print("Warning: ant_mjd column not found, using MJD values from light curve")
+        # Get the reference light curve data
+        locus = antares_client.search.get_by_ztf_object_id(ztf_object_id=transient_ztf_id)
+        df_ref = locus.timeseries.to_pandas()
+        
+        # Extract unique MJD values from the light curve
+        mjd_values = np.sort(df_ref['ant_mjd'].unique())
+        
+        # If timeseries_df is longer than the actual observations, truncate it
+        if len(timeseries_df) > len(mjd_values):
+            timeseries_df = timeseries_df.iloc[:len(mjd_values)]
+        # If it's shorter, pad with the last MJD values
+        elif len(timeseries_df) < len(mjd_values):
+            mjd_values = mjd_values[:len(timeseries_df)]
             
-            # Extract MJD range
-            min_mjd = df_ref['ant_mjd'].min()
-            max_mjd = df_ref['ant_mjd'].max()
-            
-            # Create evenly spaced values across the actual observed time range
-            # This ensures alignment with the light curve plot
-            timeseries_df['mjd_cutoff'] = np.linspace(min_mjd, max_mjd, len(timeseries_df))
+        # Assign actual MJD values to the anomaly detection points
+        timeseries_df['mjd_cutoff'] = mjd_values
 
     if host_ztf_id_to_swap_in is not None:
         # Swap in the host galaxy
