@@ -271,7 +271,7 @@ def test_swapped_host_with_key_error():
         # Mock entire find_neighbors method to avoid dealing with index
         with patch.object(ReLAISS, 'find_neighbors') as mock_find_neighbors:
             # Set up mock to properly call the primer function
-            def find_neighbors_impl(self, ztf_object_id=None, host_ztf_id=None, **kwargs):
+            def find_neighbors_impl(ztf_object_id=None, host_ztf_id=None, **kwargs):
                 # Just delegate to mocked primer to test our error handling
                 try:
                     primer_dict = mock_primer(
@@ -304,7 +304,7 @@ def test_swapped_host_with_key_error():
                     return pd.DataFrame([{"result": "fallback_success"}])
                     
             # Set the mock implementation
-            mock_find_neighbors.side_effect = find_neighbors_impl
+            mock_find_neighbors.side_effect = lambda *args, **kwargs: find_neighbors_impl(**kwargs)
             
             # Create a ReLAISS instance (doesn't need special setup now)
             client = ReLAISS()

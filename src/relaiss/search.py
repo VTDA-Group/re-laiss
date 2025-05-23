@@ -154,13 +154,23 @@ def primer(
                 
             # Extract the feature array - this data is ALREADY in the right format for the index
             locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
+            
+            # Convert to numeric array if needed
             if not isinstance(locus_feat_arr, np.ndarray):
-                # If we got a Series, convert to ndarray
-                locus_feat_arr = locus_feat_arr.values
+                try:
+                    locus_feat_arr = locus_feat_arr.astype(float)
+                except (ValueError, TypeError):
+                    print(f"Warning: Could not convert feature array to numeric type for {ztf_id}")
+                    locus_feat_arr = np.zeros(len(feature_names))
+
             # Handle NaN values
-            if np.isnan(locus_feat_arr).any():
-                print(f"Warning: Found NaN values in feature array for {ztf_id}. Replacing with 0.")
-                locus_feat_arr = np.nan_to_num(locus_feat_arr, nan=0.0)
+            if isinstance(locus_feat_arr, np.ndarray) and np.issubdtype(locus_feat_arr.dtype, np.number):
+                if np.isnan(locus_feat_arr).any():
+                    print(f"Warning: Found NaN values in feature array for {ztf_id}. Replacing with 0.")
+                    locus_feat_arr = np.nan_to_num(locus_feat_arr, 0)
+            else:
+                print(f"Warning: Feature array for {ztf_id} contains non-numeric values")
+                locus_feat_arr = np.zeros(len(feature_names))
 
             print(f"{ztf_id} is in dataset_bank.")
             ztf_id_in_dataset_bank = True
