@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from relaiss.anomaly import train_AD_model
 from pyod.models.iforest import IForest
+from relaiss.relaiss import ReLAISS
 
 def test_train_AD_model_with_preprocessed_df():
     """Test training AD model with preprocessed dataframe."""
@@ -27,11 +28,15 @@ def test_train_AD_model_with_preprocessed_df():
     # Define feature lists
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec']
+
+    client = ReLAISS()
+    client.load_reference()
     
     # Create a temporary directory for models
     with tempfile.TemporaryDirectory() as tmpdir:
         # Train model
         model_path = train_AD_model(
+            client=client,
             lc_features=lc_features,
             host_features=host_features,
             preprocessed_df=df,
@@ -49,9 +54,13 @@ def test_train_AD_model_with_preprocessed_df():
 
 def test_train_AD_model_error_handling():
     """Test error handling in train_AD_model."""
+    client = ReLAISS()
+    client.load_reference()
+    
     # Test with missing required parameters
     with pytest.raises(ValueError):
         train_AD_model(
+            client=client,
             lc_features=['g_peak_mag'],
             host_features=['host_ra'],
             preprocessed_df=None,
@@ -65,6 +74,9 @@ def test_train_AD_model_with_joblib():
         'feature1': [1, 2, 3],
         'feature2': [4, 5, 6],
     })
+
+    client = ReLAISS()
+    client.load_reference()
     
     with tempfile.TemporaryDirectory() as tmpdir:
         with patch('relaiss.anomaly.IForest') as mock_iforest_class, \
@@ -77,6 +89,7 @@ def test_train_AD_model_with_joblib():
             
             # Call train_AD_model
             model_path = train_AD_model(
+                client=client,
                 lc_features=['feature1'],
                 host_features=['feature2'],
                 preprocessed_df=df,
@@ -94,4 +107,4 @@ def test_train_AD_model_with_joblib():
             # Check that joblib.dump was called with the right arguments
             mock_dump.assert_called_once()
             assert mock_dump.call_args[0][0] is mock_model  # First arg should be the model
-            assert mock_dump.call_args[0][1] == model_path  # Second arg should be the path 
+            assert mock_dump.call_args[0][1] == model_path  # Second arg should be the path

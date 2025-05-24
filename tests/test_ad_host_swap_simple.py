@@ -54,6 +54,8 @@ def test_ad_host_swap_simple(tmp_path):
             'r_peak_mag': [19.5] * 10,
             'host_ra': [150.0] * 10,
             'host_dec': [20.0] * 10,
+            'mjd_cutoff': np.linspace(0, 100, 10),
+            'obs_num': range(1, 11)
         })
         
         # Mock dataset bank

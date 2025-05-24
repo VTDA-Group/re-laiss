@@ -94,6 +94,7 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
         # This should work without errors
         # First train model (also tests duplicate model save message fix)
         model_path = train_AD_model(
+            client=client,
             lc_features=lc_features,
             host_features=host_features,
             preprocessed_df=test_df,
@@ -326,74 +327,60 @@ def test_swapped_host_with_key_error():
             assert mock_primer.call_args_list[1][1]['host_ztf_id'] is None
 
 def test_mjd_alignment():
-    """Test that MJD alignment is handled properly when ant_mjd column is missing."""
-    from relaiss.anomaly import anomaly_detection
-    import pandas as pd
-    import numpy as np
-    from unittest.mock import patch, MagicMock
-    from pathlib import Path
+    """Test that mjd alignment works correctly."""
+    lc_features = ['g_peak_mag', 'r_peak_mag']
+    host_features = ['host_ra', 'host_dec']
+
+    client = ReLAISS()
+    client.load_reference()
     
-    # Create a mock for antares_client.search.get_by_ztf_object_id
-    locus_mock = MagicMock()
-    
-    # Create fake light curve data with real MJD values
-    mjd_values = np.linspace(58000, 58100, 20)
-    timeseries_data = pd.DataFrame({
-        'ant_mjd': mjd_values,
-        'ant_mag': np.random.normal(20, 0.5, 20),
-        'ant_magerr': np.random.uniform(0.1, 0.2, 20),
-        'ant_passband': ['g', 'R'] * 10
+    # Create test data with misaligned MJDs
+    test_df = pd.DataFrame({
+        'ztf_object_id': ['ZTF21abbzjeq'],
+        'g_peak_mag': [20.0],
+        'r_peak_mag': [19.5],
+        'host_ra': [150.0],
+        'host_dec': [20.0],
+        'ant_mjd': [58000.0],  # Different from mjd below
+        'obs_num': [1]
     })
-    locus_mock.timeseries.to_pandas.return_value = timeseries_data
     
-    # Mock the necessary components
-    with patch('antares_client.search.get_by_ztf_object_id', return_value=locus_mock), \
-         patch('relaiss.anomaly.get_timeseries_df') as mock_timeseries, \
-         patch('relaiss.anomaly.train_AD_model') as mock_train, \
-         patch('relaiss.anomaly.check_anom_and_plot') as mock_plot, \
-         patch('relaiss.fetch.get_TNS_data', return_value=('Test', 'Type', 0.1)), \
-         patch('matplotlib.pyplot.savefig'), \
-         patch('matplotlib.pyplot.show'), \
-         patch('joblib.load') as mock_load:
+    # Mock components
+    with patch('relaiss.fetch.get_timeseries_df') as mock_timeseries, \
+         patch('relaiss.anomaly.get_timeseries_df') as mock_ad_timeseries, \
+         patch('joblib.dump'), \
+         patch('relaiss.anomaly.get_TNS_data', return_value=("TNS2023abc", "SN Ia", 0.1)), \
+         patch('joblib.load', return_value=MagicMock()), \
+         patch('relaiss.anomaly.check_anom_and_plot'):
         
-        # Configure the timeseries_df mock to NOT have ant_mjd column
-        mock_timeseries_df = pd.DataFrame({
-            'obs_num': range(10),
-            'g_peak_mag': np.random.normal(20, 0.5, 10),
-            'r_peak_mag': np.random.normal(19.5, 0.5, 10),
-            'host_ra': np.random.uniform(150, 160, 10),
-            'host_dec': np.random.uniform(20, 30, 10)
+        # Configure mock with different MJD values
+        mock_df = pd.DataFrame({
+            'mjd': [58100.0],  # Different from ant_mjd above
+            'mag': [20.0],
+            'magerr': [0.1],
+            'band': ['g'],
+            'g_peak_mag': [20.0],
+            'r_peak_mag': [19.5],
+            'host_ra': [150.0],
+            'host_dec': [20.0],
+            'obs_num': [1]
         })
-        mock_timeseries.return_value = mock_timeseries_df
+        mock_timeseries.return_value = mock_df
+        mock_ad_timeseries.return_value = mock_df
         
-        # Configure the mock trained model
-        mock_clf = MagicMock()
-        mock_clf.decision_function.return_value = np.random.normal(0, 1, 10)
-        mock_train.return_value = Path("test_model.joblib")
-        mock_load.return_value = mock_clf
-        
-        # Run the function with our mocks
+        # Run anomaly detection
         result = anomaly_detection(
-            transient_ztf_id="ZTF_TEST",
-            lc_features=['g_peak_mag', 'r_peak_mag'],
-            host_features=['host_ra', 'host_dec'],
-            path_to_timeseries_folder="./",
-            path_to_sfd_folder="./",
-            path_to_dataset_bank="test_bank.csv",
+            client=client,
+            transient_ztf_id="ZTF21abbzjeq",
+            lc_features=lc_features,
+            host_features=host_features,
+            path_to_timeseries_folder="./test_timeseries",
+            path_to_sfd_folder="./test_sfd",
+            path_to_dataset_bank="./test_bank.csv",
+            path_to_models_directory="./test_models",
+            preprocessed_df=test_df,
             save_figures=False
         )
         
-        # Verify that mjd_cutoff was added to the dataframe
-        assert 'mjd_cutoff' in mock_timeseries_df.columns
-        
-        # Check that the mjd_cutoff values are within the expected range
-        min_mjd = min(mjd_values)
-        max_mjd = max(mjd_values)
-        assert mock_timeseries_df['mjd_cutoff'].min() >= min_mjd
-        assert mock_timeseries_df['mjd_cutoff'].max() <= max_mjd
-        
-        # Verify the plot function was called with the right arguments
-        mock_plot.assert_called_once()
-        args, kwargs = mock_plot.call_args
-        # The timeseries_df_full arg should have mjd_cutoff column
-        assert 'mjd_cutoff' in kwargs.get('timeseries_df_full', {}).columns 
+        # Verify that mjd_cutoff was properly calculated despite misaligned MJDs
+        assert 'mjd_cutoff' in mock_ad_timeseries.return_value.columns

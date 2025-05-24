@@ -16,7 +16,7 @@ from relaiss.features import build_dataset_bank, extract_lc_and_host_features
 from relaiss.search import primer
 from relaiss.fetch import get_timeseries_df
 from relaiss.anomaly import train_AD_model
-
+import relaiss as rl
 
 class TestPreprocessedDataframe:
     """Test suite for preprocessed dataframe functionality across the package."""
@@ -163,6 +163,9 @@ class TestPreprocessedDataframe:
         # Mock build_dataset_bank to verify it's not called when preprocessed_df is provided
         with patch('relaiss.features.build_dataset_bank') as mock_build_dataset, \
              patch('joblib.dump') as mock_dump:
+
+            client = rl.ReLAISS() 
+            client.load_reference()
             
             # Call train_AD_model with preprocessed_df
             model_path = train_AD_model(
@@ -257,7 +260,12 @@ class TestPreprocessedDataframe:
             mock_antares.return_value = mock_locus
             
             # Call anomaly_detection with preprocessed_df
+
+            client = rl.ReLAISS() 
+            client.load_reference()
+
             anomaly_detection(
+                client=client,
                 transient_ztf_id="ZTF21abbzjeq",
                 lc_features=lc_features,
                 host_features=host_features,

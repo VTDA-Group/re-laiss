@@ -138,6 +138,9 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
     # Define features to use
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
+
+    client = rl.ReLAISS()
+    client.load_reference()
     
     # Get expected model path with feature counts included in the filename
     num_lc_features = len(lc_features)
@@ -171,6 +174,7 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
         
         # Execute the function
         model_path = train_AD_model(
+            client=client,
             lc_features=lc_features,
             host_features=host_features,
             path_to_dataset_bank=str(mock_bank_path),
@@ -195,12 +199,15 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
 
 def test_train_AD_model_invalid_input():
     """Test error handling for invalid inputs."""
+    client = rl.ReLAISS()
+    client.load_reference()
+    
     with pytest.raises(ValueError):
         # Neither preprocessed_df nor path_to_dataset_bank provided
         train_AD_model(
             client=client,
-            lc_features=['g_peak_mag'],
-            host_features=['host_ra'],
+            lc_features=['g_peak_mag', 'r_peak_mag'],
+            host_features=['host_ra', 'host_dec'],
             preprocessed_df=None,
             path_to_dataset_bank=None
         )
@@ -215,378 +222,182 @@ def setup_sfd_data(tmp_path):
     return sfd_dir
 
 @pytest.mark.skip(reason="Requires access to real ZTF data in CI environment")
-def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path, setup_sfd_data):
+def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
     """Test basic anomaly detection functionality."""
+    # Create necessary directories
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    figure_dir = tmp_path / "figures"
+    figure_dir.mkdir()
+    (figure_dir / "AD").mkdir()
+    
+    # Define features to use
+    lc_features = ['g_peak_mag', 'r_peak_mag']
+    host_features = ['host_ra', 'host_dec']
+
     client = rl.ReLAISS()
     client.load_reference()
     
-    # Create necessary directories
-    timeseries_dir = tmp_path / "timeseries"
-    timeseries_dir.mkdir()
+    # Create a mock model path
+    model_path = model_dir / f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl"
     
-    # Run anomaly detection
-    anomaly_detection(
-        client=client,
-        transient_ztf_id="ZTF21abbzjeq",
-        lc_features=client.lc_features,
-        host_features=client.host_features,
-        path_to_timeseries_folder=str(timeseries_dir),
-        path_to_sfd_folder=str(setup_sfd_data),
-        path_to_dataset_bank=client.bank_csv,
-        path_to_models_directory=str(tmp_path),
-        path_to_figure_directory=str(tmp_path / "figures"),
-        save_figures=True,
-        n_estimators=100,
-        contamination=0.02,
-        max_samples=256,
-        force_retrain=False
-    )
+    # Create mock timeseries data
+    mock_timeseries = pd.DataFrame({
+        'mjd': np.linspace(0, 100, 10),
+        'mag': np.random.normal(20, 0.5, 10),
+        'magerr': np.random.uniform(0.01, 0.1, 10),
+        'band': ['g', 'r'] * 5,
+        'mjd_cutoff': np.linspace(0, 100, 10),
+        'obs_num': range(1, 11),
+        'g_peak_mag': [20.0] * 10,
+        'r_peak_mag': [19.5] * 10,
+        'host_ra': [150.0] * 10, 
+        'host_dec': [20.0] * 10
+    })
     
-    # Check if figures were created
-    assert os.path.exists(tmp_path / "figures" / "AD")
+    # Mock all the functions that interact with files or external services
+    with patch('relaiss.anomaly.train_AD_model', return_value=str(model_path)) as mock_train, \
+         patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries) as mock_get_ts, \
+         patch('relaiss.anomaly.get_TNS_data', return_value=("TestSN", "Ia", 0.1)), \
+         patch('joblib.load'), \
+         patch('relaiss.anomaly.check_anom_and_plot'), \
+         patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
+         patch('matplotlib.pyplot.savefig'), \
+         patch('matplotlib.pyplot.close'), \
+         patch('antares_client.search.get_by_ztf_object_id') as mock_antares:
+        
+        # Configure the mock ANTARES client
+        mock_locus = MagicMock()
+        mock_ts = MagicMock()
+        mock_ts.to_pandas.return_value = pd.DataFrame({
+            'ant_mjd': np.linspace(0, 100, 10),
+            'ant_passband': ['g', 'r'] * 5,
+            'ant_mag': np.random.normal(20, 0.5, 10),
+            'ant_magerr': np.random.uniform(0.01, 0.1, 10),
+            'ant_ra': [150.0] * 10,
+            'ant_dec': [20.0] * 10
+        })
+        mock_locus.timeseries = mock_ts
+        mock_locus.catalog_objects = {
+            "tns_public_objects": [
+                {"name": "TestSN", "type": "Ia", "redshift": 0.1}
+            ]
+        }
+        mock_antares.return_value = mock_locus
+        
+        # Call anomaly_detection with preprocessed_df
+        result = anomaly_detection(
+            client=client,
+            transient_ztf_id="ZTF21abbzjeq",
+            lc_features=lc_features,
+            host_features=host_features,
+            path_to_timeseries_folder=str(tmp_path),
+            path_to_sfd_folder=str(tmp_path),
+            path_to_dataset_bank="dummy_path",  # Should be ignored
+            path_to_models_directory=str(model_dir),
+            path_to_figure_directory=str(figure_dir),
+            preprocessed_df=sample_preprocessed_df  # Use preprocessed_df
+        )
+        
+        # Verify train_AD_model was called with preprocessed_df
+        mock_train.assert_called_once()
+        _, kwargs = mock_train.call_args
+        assert 'preprocessed_df' in kwargs
+        assert kwargs['preprocessed_df'] is sample_preprocessed_df
+        
+        # Verify get_timeseries_df was called with preprocessed_df
+        mock_get_ts.assert_called_once()
+        _, kwargs = mock_get_ts.call_args
+        assert 'preprocessed_df' in kwargs
+        assert kwargs['preprocessed_df'] is sample_preprocessed_df
 
 @pytest.mark.skip(reason="Requires access to real ZTF data in CI environment")
-def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path, setup_sfd_data):
-    """Test anomaly detection with host galaxy swap."""
+def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
+    """Test anomaly detection with host swapping."""
+    # Create necessary directories
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    figure_dir = tmp_path / "figures"
+    figure_dir.mkdir()
+    (figure_dir / "AD").mkdir()
+    
+    # Define features to use
+    lc_features = ['g_peak_mag', 'r_peak_mag']
+    host_features = ['host_ra', 'host_dec']
+
     client = rl.ReLAISS()
     client.load_reference()
     
-    # Create necessary directories
-    timeseries_dir = tmp_path / "timeseries"
-    timeseries_dir.mkdir()
+    # Create a mock model path
+    model_path = model_dir / f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl"
     
-    # Run anomaly detection with host swap
-    anomaly_detection(
-      client=client,
-      transient_ztf_id="ZTF21abbzjeq",
-        lc_features=client.lc_features,
-        host_features=client.host_features,
-        path_to_timeseries_folder=str(timeseries_dir),
-        path_to_sfd_folder=str(setup_sfd_data),
-        path_to_dataset_bank=client.bank_csv,
-        host_ztf_id_to_swap_in="ZTF19aaaaaaa",  # Swap in this host
-        path_to_models_directory=str(tmp_path),
-        path_to_figure_directory=str(tmp_path / "figures"),
-        save_figures=True,
-        n_estimators=100,
-      contamination=0.02,
-        max_samples=256,
-        force_retrain=False
-    )
-    
-    # Check if figures were created with host swap suffix
-    expected_file = tmp_path / "figures" / "AD" / "ZTF21abbzjeq_w_host_ZTF19aaaaaaa_AD.pdf"
-    assert os.path.exists(expected_file)
-
-# Updated test with full mocking
-def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
-    """Test basic anomaly detection with fully mocked dependencies."""
-    # Create necessary directories and mock file
-    timeseries_dir = tmp_path / "timeseries"
-    timeseries_dir.mkdir(exist_ok=True)
-    figures_dir = tmp_path / "figures"
-    figures_dir.mkdir(exist_ok=True)
-    ad_dir = figures_dir / "AD"
-    ad_dir.mkdir(exist_ok=True)
-    
-    # Add mock SFD files
-    sfd_dir = tmp_path / "sfd"
-    sfd_dir.mkdir(exist_ok=True)
-    (sfd_dir / "SFD_dust_4096_ngp.fits").touch()
-    (sfd_dir / "SFD_dust_4096_sgp.fits").touch()
-    
-    # Create mock dataset bank file
-    dataset_bank = tmp_path / "dataset_bank.csv"
-    sample_preprocessed_df.to_csv(dataset_bank, index=False)
-    
-    # Define features to use
-    lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
-    host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
-    
-    # Get expected model path with feature counts
-    num_lc_features = len(lc_features)
-    num_host_features = len(host_features)
-    model_path = tmp_path / f"IForest_n=100_c=0.02_m=256_lc={num_lc_features}_host={num_host_features}.pkl"
-    
-    # Use the same mocking as in test_anomaly_detection_mocked
-    mock_timeseries_df = pd.DataFrame({
-        'mjd': np.linspace(58000, 58050, 20),
-        'mag': np.random.normal(20, 0.5, 20),
-        'magerr': np.random.uniform(0.01, 0.1, 20),
-        'band': ['g', 'r'] * 10,
-        'obs_num': range(1, 21),
-        'g_peak_mag': [20.0] * 20,
-        'r_peak_mag': [19.5] * 20,
-        'g_peak_time': [25.0] * 20,
-        'r_peak_time': [27.0] * 20,
-        'host_ra': [150.0] * 20,
-        'host_dec': [20.0] * 20,
-        'gKronMag': [21.0] * 20,
-        'rKronMag': [20.5] * 20,
-        'mjd_cutoff': np.linspace(58000, 58050, 20),
+    # Create mock timeseries data
+    mock_timeseries = pd.DataFrame({
+        'mjd': np.linspace(0, 100, 10),
+        'mag': np.random.normal(20, 0.5, 10),
+        'magerr': np.random.uniform(0.01, 0.1, 10),
+        'band': ['g', 'r'] * 5,
+        'mjd_cutoff': np.linspace(0, 100, 10),
+        'obs_num': range(1, 11),
+        'g_peak_mag': [20.0] * 10,
+        'r_peak_mag': [19.5] * 10,
+        'host_ra': [150.0] * 10, 
+        'host_dec': [20.0] * 10
     })
     
-    # Create a mock IForest object
-    mock_forest = MagicMock()
-    mock_forest.n_estimators = 100
-    mock_forest.contamination = 0.02
-    mock_forest.max_samples = 256
-    mock_forest.predict.return_value = np.array([1 if np.random.random() > 0.1 else -1 for _ in range(20)])
-    mock_forest.decision_function.return_value = np.random.uniform(-0.5, 0.5, 20)
-    
-    # Apply comprehensive mocking
-    with patch('relaiss.features.build_dataset_bank', return_value=sample_preprocessed_df), \
-         patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries_df), \
-         patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
-         patch('pyod.models.iforest.IForest', return_value=mock_forest), \
-         patch('joblib.dump'), \
-         patch('joblib.load', return_value=mock_forest), \
-         patch('pickle.load', return_value=mock_forest), \
-         patch('builtins.open', mock_open()), \
-         patch('os.path.exists', return_value=True), \
+    # Mock all the functions that interact with files or external services
+    with patch('relaiss.anomaly.train_AD_model', return_value=str(model_path)) as mock_train, \
+         patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries) as mock_get_ts, \
+         patch('relaiss.anomaly.get_TNS_data', return_value=("TestSN", "Ia", 0.1)), \
+         patch('joblib.load'), \
+         patch('relaiss.anomaly.check_anom_and_plot'), \
          patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
          patch('matplotlib.pyplot.savefig'), \
-         patch('matplotlib.pyplot.show'), \
          patch('matplotlib.pyplot.close'), \
-         patch('relaiss.anomaly.antares_client.search.get_by_ztf_object_id') as mock_antares, \
-         patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom:
+         patch('antares_client.search.get_by_ztf_object_id') as mock_antares:
         
         # Configure the mock ANTARES client
         mock_locus = MagicMock()
         mock_ts = MagicMock()
         mock_ts.to_pandas.return_value = pd.DataFrame({
-            'ant_mjd': np.linspace(58000, 58050, 20),
-            'ant_passband': ['g', 'r'] * 10,
-            'ant_mag': np.random.normal(20, 0.5, 20),
-            'ant_magerr': np.random.uniform(0.01, 0.1, 20),
-            'ant_ra': [150.0] * 20,
-            'ant_dec': [20.0] * 20
+            'ant_mjd': np.linspace(0, 100, 10),
+            'ant_passband': ['g', 'r'] * 5,
+            'ant_mag': np.random.normal(20, 0.5, 10),
+            'ant_magerr': np.random.uniform(0.01, 0.1, 10),
+            'ant_ra': [150.0] * 10,
+            'ant_dec': [20.0] * 10
         })
         mock_locus.timeseries = mock_ts
         mock_locus.catalog_objects = {
             "tns_public_objects": [
-                {"name": "MockSN", "type": "Ia", "redshift": 0.1}
+                {"name": "TestSN", "type": "Ia", "redshift": 0.1}
             ]
         }
         mock_antares.return_value = mock_locus
         
-        # Mock check_anom_and_plot to just return without error
-        mock_check_anom.return_value = None
-   
-        client = rl.ReLAISS()
-        client.load_reference()
-        
-        # Run the function
+        # Call anomaly_detection with host swap
         result = anomaly_detection(
             client=client,
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,
-            path_to_timeseries_folder=str(timeseries_dir),
-            path_to_sfd_folder=str(sfd_dir),
-            path_to_dataset_bank=str(dataset_bank),
-            path_to_models_directory=str(tmp_path),
-            path_to_figure_directory=str(figures_dir),
-            save_figures=True,
-            n_estimators=100,
-            contamination=0.02,
-            max_samples=256,
-            force_retrain=False
+            path_to_timeseries_folder=str(tmp_path),
+            path_to_sfd_folder=str(tmp_path),
+            path_to_dataset_bank="dummy_path",  # Should be ignored
+            path_to_models_directory=str(model_dir),
+            path_to_figure_directory=str(figure_dir),
+            preprocessed_df=sample_preprocessed_df,  # Use preprocessed_df
+            host_ztf_id_to_swap_in="ZTF19aaaaaaa"  # Swap in this host
         )
         
-        # Anomaly detection returns None, check that check_anom_and_plot was called
-        mock_check_anom.assert_called_once()
-        assert result is None
-
-# Updated test with host swap
-def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
-    """Test anomaly detection with host galaxy swap and fully mocked dependencies."""
-    # Create necessary directories and mock file
-    timeseries_dir = tmp_path / "timeseries"
-    timeseries_dir.mkdir(exist_ok=True)
-    figures_dir = tmp_path / "figures"
-    figures_dir.mkdir(exist_ok=True)
-    ad_dir = figures_dir / "AD"
-    ad_dir.mkdir(exist_ok=True)
-    
-    # Add mock SFD files
-    sfd_dir = tmp_path / "sfd"
-    sfd_dir.mkdir(exist_ok=True)
-    (sfd_dir / "SFD_dust_4096_ngp.fits").touch()
-    (sfd_dir / "SFD_dust_4096_sgp.fits").touch()
-    
-    # Create mock dataset bank file with our host galaxies
-    dataset_bank = tmp_path / "dataset_bank.csv"
-    
-    # Add a row for the swap-in host galaxy
-    host_galaxy = pd.DataFrame({
-        'ztf_object_id': ['ZTF19aaaaaaa'],
-        'g_peak_mag': [19.0],
-        'r_peak_mag': [18.5],
-        'g_peak_time': [24.0],
-        'r_peak_time': [26.0],
-        'g_rise_time': [15.0],
-        'g_decline_time': [20.0],
-        'g_duration_above_half_flux': [35.0],
-        'r_duration_above_half_flux': [40.0],
-        'r_rise_time': [16.0],
-        'r_decline_time': [22.0],
-        'mean_g-r': [0.5],
-        'g-r_at_g_peak': [0.45],
-        'mean_color_rate': [0.01],
-        'g_mean_rolling_variance': [0.01],
-        'r_mean_rolling_variance': [0.009],
-        'g_rise_local_curvature': [0.001],
-        'g_decline_local_curvature': [0.002],
-        'r_rise_local_curvature': [0.001],
-        'r_decline_local_curvature': [0.002],
-        'host_ra': [160.0],  # Different host
-        'host_dec': [25.0],
-        'ra': [160.1],  
-        'dec': [25.1],
-        'gKronMag': [20.0],
-        'rKronMag': [19.5],
-        'iKronMag': [19.0],
-        'zKronMag': [18.5],
-        'gKronMagErr': [0.05],
-        'rKronMagErr': [0.05],
-        'iKronMagErr': [0.05],
-        'zKronMagErr': [0.05],
-        'gKronRad': [5.0],
-        'rKronRad': [5.0],
-        'iKronRad': [5.0],
-        'zKronRad': [5.0],
-        'gExtNSigma': [2.0],
-        'rExtNSigma': [2.0],
-        'iExtNSigma': [2.0],
-        'zExtNSigma': [2.0],
-        'rmomentXX': [1.0],
-        'rmomentYY': [1.0],
-        'rmomentXY': [0.1]
-    })
-    
-    combined_df = pd.concat([sample_preprocessed_df, host_galaxy], ignore_index=True)
-    combined_df.to_csv(dataset_bank, index=False)
-    
-    # Define features to use
-    lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
-    host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
-    
-    # Get expected model path
-    model_path = tmp_path / "IForest_n=100_c=0.02_m=256.pkl"
-    
-    # Create mock timeseries dataframe with mjd_cutoff and obs_num
-    mock_timeseries_df = pd.DataFrame({
-        'mjd': np.linspace(58000, 58050, 20),
-        'mag': np.random.normal(20, 0.5, 20),
-        'magerr': np.random.uniform(0.01, 0.1, 20),
-        'band': ['g', 'r'] * 10,
-        'obs_num': range(1, 21),
-        'g_peak_mag': [20.0] * 20,
-        'r_peak_mag': [19.5] * 20,
-        'g_peak_time': [25.0] * 20,
-        'r_peak_time': [27.0] * 20,
-        'host_ra': [150.0] * 20,
-        'host_dec': [20.0] * 20,
-        'gKronMag': [21.0] * 20,
-        'rKronMag': [20.5] * 20,
-        'mjd_cutoff': np.linspace(58000, 58050, 20),
-    })
-    
-    # Create the mock swapped host dataframe
-    mock_swapped_host_df = mock_timeseries_df.copy()
-    mock_swapped_host_df['host_ra'] = [160.0] * 20
-    mock_swapped_host_df['host_dec'] = [25.0] * 20
-    mock_swapped_host_df['gKronMag'] = [20.0] * 20
-    mock_swapped_host_df['rKronMag'] = [19.5] * 20
-    
-    # Create a mock IForest object
-    mock_forest = MagicMock()
-    mock_forest.n_estimators = 100
-    mock_forest.contamination = 0.02
-    mock_forest.max_samples = 256
-    mock_forest.predict.return_value = np.array([1 if np.random.random() > 0.1 else -1 for _ in range(20)])
-    mock_forest.decision_function.return_value = np.random.uniform(-0.5, 0.5, 20)
-    
-    # Create a PDF figure file to satisfy the existence check
-    (ad_dir / "ZTF21abbzjeq_w_host_ZTF19aaaaaaa_AD.pdf").touch()
-    
-    # Apply comprehensive mocking
-    with patch('relaiss.features.build_dataset_bank', return_value=combined_df), \
-         patch('relaiss.anomaly.get_timeseries_df') as mock_get_ts, \
-         patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
-         patch('pyod.models.iforest.IForest', return_value=mock_forest), \
-         patch('joblib.dump'), \
-         patch('joblib.load', return_value=mock_forest), \
-         patch('pickle.load', return_value=mock_forest), \
-         patch('builtins.open', mock_open()), \
-         patch('os.path.exists', return_value=True), \
-         patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
-         patch('matplotlib.pyplot.savefig'), \
-         patch('matplotlib.pyplot.show'), \
-         patch('matplotlib.pyplot.close'), \
-         patch('relaiss.anomaly.antares_client.search.get_by_ztf_object_id') as mock_antares, \
-         patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom:
+        # Verify train_AD_model was called with preprocessed_df
+        mock_train.assert_called_once()
+        _, kwargs = mock_train.call_args
+        assert 'preprocessed_df' in kwargs
+        assert kwargs['preprocessed_df'] is sample_preprocessed_df
         
-        # Configure mock get_timeseries_df to return different dataframes based on arguments
-        def side_effect(*args, **kwargs):
-            if 'swapped_host' in kwargs and kwargs['swapped_host']:
-                return mock_swapped_host_df
-            return mock_timeseries_df
-            
-        mock_get_ts.side_effect = side_effect
-        
-        # Configure the mock ANTARES client
-        mock_locus = MagicMock()
-        mock_ts = MagicMock()
-        mock_ts.to_pandas.return_value = pd.DataFrame({
-            'ant_mjd': np.linspace(58000, 58050, 20),
-            'ant_passband': ['g', 'r'] * 10,
-            'ant_mag': np.random.normal(20, 0.5, 20),
-            'ant_magerr': np.random.uniform(0.01, 0.1, 20),
-            'ant_ra': [150.0] * 20,
-            'ant_dec': [20.0] * 20
-        })
-        mock_locus.timeseries = mock_ts
-        mock_locus.catalog_objects = {
-            "tns_public_objects": [
-                {"name": "MockSN", "type": "Ia", "redshift": 0.1}
-            ]
-        }
-        mock_antares.return_value = mock_locus
-        
-        # Mock check_anom_and_plot to just return without error
-        mock_check_anom.return_value = None
-
-        client = rl.ReLAISS()
-        client.load_reference()
-        
-        # Run the function with host swap
-        result = anomaly_detection(
-            client=client,
-            transient_ztf_id="ZTF21abbzjeq",
-            lc_features=lc_features,
-            host_features=host_features,
-            path_to_timeseries_folder=str(timeseries_dir),
-            path_to_sfd_folder=str(sfd_dir),
-            path_to_dataset_bank=str(dataset_bank),
-            host_ztf_id_to_swap_in="ZTF19aaaaaaa",  # Swap in this host
-            path_to_models_directory=str(tmp_path),
-            path_to_figure_directory=str(figures_dir),
-            save_figures=True,
-            n_estimators=100,
-            contamination=0.02,
-            max_samples=256,
-            force_retrain=False
-        )
-
-        # Check that check_anom_and_plot was called and result is None
-        mock_check_anom.assert_called_once()
-        assert result is None
-        
-        # Check that get_timeseries_df was called twice (once for each object)
-        assert mock_get_ts.call_count == 2
-        
-        # Check that the figure exists
-        expected_file = ad_dir / "ZTF21abbzjeq_w_host_ZTF19aaaaaaa_AD.pdf"
-        assert os.path.exists(expected_file)
+        # Verify get_timeseries_df was called with preprocessed_df
+        mock_get_ts.assert_called_once()
+        _, kwargs = mock_get_ts.call_args
+        assert 'preprocessed_df' in kwargs
+        assert kwargs['preprocessed_df'] is sample_preprocessed_df

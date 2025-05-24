@@ -132,7 +132,7 @@ def test_anomaly_detection_simplified(tmp_path):
         # Mock check_anom_and_plot to return None
         mock_check_anom.return_value = None
 
-        client = rl.ReLAISS()
+        client = relaiss.ReLAISS()
         client.load_reference()
         
         # Run anomaly detection function

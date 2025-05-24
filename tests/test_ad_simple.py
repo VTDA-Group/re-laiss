@@ -22,6 +22,9 @@ def test_train_AD_model_simple(tmp_path):
         'host_ra': np.random.uniform(0, 360, 100),
         'host_dec': np.random.uniform(-90, 90, 100),
     })
+
+    client = ReLAISS()
+    client.load_reference()
     
     with patch('pyod.models.iforest.IForest', autospec=True) as mock_iso:
         mock_model = MagicMock()
@@ -32,6 +35,7 @@ def test_train_AD_model_simple(tmp_path):
         
         with patch('joblib.dump') as mock_dump:
             model_path = train_AD_model(
+                client=client,
                 lc_features=lc_features,
                 host_features=host_features,
                 preprocessed_df=df,
@@ -66,21 +70,17 @@ def test_anomaly_detection_simplified(tmp_path):
     X = np.random.rand(20, 4)
     real_forest.fit(X)
 
-    client = ReLAISS()
-    client.load_reference(
-            lc_features=lc_features,
-            host_features=host_features,
-            # minimal setup
-        )
+    # Define features first
+    lc_features = ['g_peak_mag', 'r_peak_mag']
+    host_features = ['host_ra', 'host_dec']
 
+    client = ReLAISS()
+    client.load_reference()
     
     model_path = model_dir / "IForest_n=100_c=0.02_m=256.pkl"
     
     with open(model_path, 'wb') as f:
         pickle.dump(real_forest, f)
-    
-    lc_features = ['g_peak_mag', 'r_peak_mag']
-    host_features = ['host_ra', 'host_dec']
     
     # Mock functions
     with patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom, \
