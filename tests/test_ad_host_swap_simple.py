@@ -4,7 +4,7 @@ import numpy as np
 import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IForest
 
 def test_ad_host_swap_simple(tmp_path):
     """Test anomaly detection with host swap using direct mocking."""
@@ -17,8 +17,8 @@ def test_ad_host_swap_simple(tmp_path):
     figure_dir.mkdir(exist_ok=True)
     (figure_dir / "AD").mkdir(exist_ok=True)
     
-    # Create IsolationForest model
-    forest = IsolationForest(n_estimators=10, random_state=42)
+    # Create IForest model
+    forest = IForest(n_estimators=10, random_state=42)
     X = np.random.rand(20, 4)
     forest.fit(X)
     

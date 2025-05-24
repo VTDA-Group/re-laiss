@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 import tempfile
 from pathlib import Path
 from relaiss.anomaly import train_AD_model
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IForest
 
 def test_train_AD_model_with_preprocessed_df():
     """Test training AD model with preprocessed dataframe."""
@@ -67,7 +67,7 @@ def test_train_AD_model_with_joblib():
     })
     
     with tempfile.TemporaryDirectory() as tmpdir:
-        with patch('relaiss.anomaly.IsolationForest') as mock_iforest_class, \
+        with patch('relaiss.anomaly.IForest') as mock_iforest_class, \
              patch('joblib.dump') as mock_dump:
             
             # Create mock model

@@ -166,6 +166,7 @@ class TestPreprocessedDataframe:
             
             # Call train_AD_model with preprocessed_df
             model_path = train_AD_model(
+                client=client,
                 lc_features=lc_features,
                 host_features=host_features,
                 preprocessed_df=sample_preprocessed_df,

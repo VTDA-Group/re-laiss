@@ -7,7 +7,7 @@ import pickle
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from relaiss.anomaly import train_AD_model
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IForest
 
 def test_train_AD_model_simple(tmp_path):
     """Test training AD model with simplified mocks."""
@@ -23,8 +23,8 @@ def test_train_AD_model_simple(tmp_path):
         'host_dec': np.random.uniform(-90, 90, 100),
     })
     
-    # Mock the IsolationForest and joblib
-    with patch('sklearn.ensemble.IsolationForest', autospec=True) as mock_iso:
+    # Mock the IForest and joblib
+    with patch('sklearn.ensemble.IForest', autospec=True) as mock_iso:
         mock_model = MagicMock()
         mock_model.n_estimators = 100
         mock_model.contamination = 0.02
@@ -68,8 +68,8 @@ def test_anomaly_detection_simplified(tmp_path):
     figure_dir.mkdir(exist_ok=True)
     (figure_dir / "AD").mkdir(exist_ok=True)
     
-    # Create a real IsolationForest that can be pickled
-    real_forest = IsolationForest(n_estimators=10, random_state=42)
+    # Create a real IForest that can be pickled
+    real_forest = IForest(n_estimators=10, random_state=42)
     X = np.random.rand(20, 4)  # Some dummy data
     real_forest.fit(X)  # Fit the model so it can be used
     

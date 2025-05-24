@@ -6,7 +6,8 @@ import joblib
 import pickle
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IForest
+from relaiss.relaiss import ReLAISS
 
 def test_train_AD_model_simple(tmp_path):
     """Test training AD model with simplified mocks."""
@@ -22,7 +23,7 @@ def test_train_AD_model_simple(tmp_path):
         'host_dec': np.random.uniform(-90, 90, 100),
     })
     
-    with patch('sklearn.ensemble.IsolationForest', autospec=True) as mock_iso:
+    with patch('sklearn.ensemble.IForest', autospec=True) as mock_iso:
         mock_model = MagicMock()
         mock_model.n_estimators = 100
         mock_model.contamination = 0.02
@@ -60,10 +61,18 @@ def test_anomaly_detection_simplified(tmp_path):
     figure_dir.mkdir(exist_ok=True)
     (figure_dir / "AD").mkdir(exist_ok=True)
     
-    # Create IsolationForest model
-    real_forest = IsolationForest(n_estimators=10, random_state=42)
+    # Create IForest model
+    real_forest = IForest(n_estimators=10, random_state=42)
     X = np.random.rand(20, 4)
     real_forest.fit(X)
+
+    client = ReLAISS()
+    client.load_reference(
+            lc_features=lc_features,
+            host_features=host_features,
+            # minimal setup
+        )
+
     
     model_path = model_dir / "IForest_n=100_c=0.02_m=256.pkl"
     
@@ -118,6 +127,7 @@ def test_anomaly_detection_simplified(tmp_path):
         
         # Run the function
         result = anomaly_detection(
+            client=client,
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,

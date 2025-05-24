@@ -83,6 +83,7 @@ def test_train_AD_model_with_preprocessed_df(tmp_path, sample_preprocessed_df):
         
         # Call train_AD_model with preprocessed_df
         model_path = train_AD_model(
+            client=client,
             lc_features=lc_features,
             host_features=host_features,
             preprocessed_df=sample_preprocessed_df,
@@ -112,6 +113,7 @@ def test_train_AD_model_with_raw_data(tmp_path):
     client.load_reference()
     
     model_path = train_AD_model(
+        client=client,
         lc_features=client.lc_features,
         host_features=client.host_features,
         path_to_dataset_bank=client.bank_csv,
@@ -185,7 +187,7 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
         
         # Verify joblib.dump was called with appropriate arguments
         mock_dump.assert_called_once()
-        # Check the first argument is an IsolationForest model
+        # Check the first argument is an IForest model
         model = mock_dump.call_args[0][0]
         assert model.n_estimators == 100
         assert model.contamination == 0.02
@@ -196,6 +198,7 @@ def test_train_AD_model_invalid_input():
     with pytest.raises(ValueError):
         # Neither preprocessed_df nor path_to_dataset_bank provided
         train_AD_model(
+            client=client,
             lc_features=['g_peak_mag'],
             host_features=['host_ra'],
             preprocessed_df=None,
@@ -223,6 +226,7 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path, setup_sfd_dat
     
     # Run anomaly detection
     anomaly_detection(
+        client=client,
         transient_ztf_id="ZTF21abbzjeq",
         lc_features=client.lc_features,
         host_features=client.host_features,
@@ -253,6 +257,7 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path, setu
     
     # Run anomaly detection with host swap
     anomaly_detection(
+      client=client,
       transient_ztf_id="ZTF21abbzjeq",
         lc_features=client.lc_features,
         host_features=client.host_features,
@@ -321,7 +326,7 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
         'mjd_cutoff': np.linspace(58000, 58050, 20),
     })
     
-    # Create a mock IsolationForest object
+    # Create a mock IForest object
     mock_forest = MagicMock()
     mock_forest.n_estimators = 100
     mock_forest.contamination = 0.02
@@ -333,7 +338,7 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
     with patch('relaiss.features.build_dataset_bank', return_value=sample_preprocessed_df), \
          patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries_df), \
          patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
-         patch('sklearn.ensemble.IsolationForest', return_value=mock_forest), \
+         patch('sklearn.ensemble.IForest', return_value=mock_forest), \
          patch('joblib.dump'), \
          patch('joblib.load', return_value=mock_forest), \
          patch('pickle.load', return_value=mock_forest), \
@@ -370,6 +375,7 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
         
         # Run the function
         result = anomaly_detection(
+            client=client,
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,
@@ -491,7 +497,7 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
     mock_swapped_host_df['gKronMag'] = [20.0] * 20
     mock_swapped_host_df['rKronMag'] = [19.5] * 20
     
-    # Create a mock IsolationForest object
+    # Create a mock IForest object
     mock_forest = MagicMock()
     mock_forest.n_estimators = 100
     mock_forest.contamination = 0.02
@@ -506,7 +512,7 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
     with patch('relaiss.features.build_dataset_bank', return_value=combined_df), \
          patch('relaiss.anomaly.get_timeseries_df') as mock_get_ts, \
          patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
-         patch('sklearn.ensemble.IsolationForest', return_value=mock_forest), \
+         patch('sklearn.ensemble.IForest', return_value=mock_forest), \
          patch('joblib.dump'), \
          patch('joblib.load', return_value=mock_forest), \
          patch('pickle.load', return_value=mock_forest), \
@@ -551,6 +557,7 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
         
         # Run the function with host swap
         result = anomaly_detection(
+            client=client,
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,
