@@ -163,9 +163,10 @@ class TestPreprocessedDataframe:
         # Mock build_dataset_bank to verify it's not called when preprocessed_df is provided
         with patch('relaiss.features.build_dataset_bank') as mock_build_dataset, \
              patch('joblib.dump') as mock_dump:
-
-            client = rl.ReLAISS() 
+            
+            client = rl.ReLAISS()
             client.load_reference()
+            client.built_for_AD = True  # Set this flag to use preprocessed_df
             
             # Call train_AD_model with preprocessed_df
             model_path = train_AD_model(
@@ -183,8 +184,8 @@ class TestPreprocessedDataframe:
             # Verify build_dataset_bank was not called
             mock_build_dataset.assert_not_called()
             
-            # Verify joblib.dump was called with the right parameters
-            mock_dump.assert_called_once()
+            # Verify joblib.dump was called twice - once for scaler and once for model
+            assert mock_dump.call_count == 2
             
             # Check that model_path includes feature counts in the filename
             num_lc_features = len(lc_features)
@@ -197,7 +198,7 @@ class TestPreprocessedDataframe:
         
         When preprocessed_df is provided to anomaly_detection, it should:
         - Pass the preprocessed_df to train_AD_model
-        - Pass the preprocessed_df to get_timeseries_df
+        - Use building_for_AD=True when calling get_timeseries_df
         """
         from relaiss.anomaly import anomaly_detection
         
@@ -225,19 +226,21 @@ class TestPreprocessedDataframe:
             'obs_num': range(1, 11),
             'g_peak_mag': [20.0] * 10,
             'r_peak_mag': [19.5] * 10,
-            'host_ra': [150.0] * 10, 
+            'host_ra': [150.0] * 10,
             'host_dec': [20.0] * 10
         })
         
         # Mock all the functions that interact with files or external services
         with patch('relaiss.anomaly.train_AD_model', return_value=str(model_path)) as mock_train, \
-             patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries) as mock_get_ts, \
+             patch('relaiss.fetch.get_timeseries_df', return_value=mock_timeseries) as mock_get_ts, \
+             patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries) as mock_ad_get_ts, \
              patch('relaiss.anomaly.get_TNS_data', return_value=("TestSN", "Ia", 0.1)), \
              patch('joblib.load'), \
-             patch('relaiss.anomaly.check_anom_and_plot'), \
+             patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom, \
              patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
              patch('matplotlib.pyplot.savefig'), \
              patch('matplotlib.pyplot.close'), \
+             patch('matplotlib.pyplot.show'), \
              patch('antares_client.search.get_by_ztf_object_id') as mock_antares:
             
             # Configure the mock ANTARES client
@@ -259,22 +262,28 @@ class TestPreprocessedDataframe:
             }
             mock_antares.return_value = mock_locus
             
-            # Call anomaly_detection with preprocessed_df
-
-            client = rl.ReLAISS() 
+            # Mock check_anom_and_plot to return proper values
+            mock_check_anom.return_value = (np.array([58000.0]), np.array([0.5]), np.array([0.75]))
+            
+            client = rl.ReLAISS()
             client.load_reference()
-
-            anomaly_detection(
+            client.built_for_AD = True  # Set this flag to use preprocessed_df
+            
+            # Call anomaly_detection with preprocessed_df
+            result = anomaly_detection(
                 client=client,
                 transient_ztf_id="ZTF21abbzjeq",
                 lc_features=lc_features,
                 host_features=host_features,
                 path_to_timeseries_folder=str(tmp_path),
                 path_to_sfd_folder=str(tmp_path),
-                path_to_dataset_bank="dummy_path",  # Should be ignored
+                path_to_dataset_bank=None,  # Should be None when using preprocessed_df
                 path_to_models_directory=str(model_dir),
                 path_to_figure_directory=str(figure_dir),
-                preprocessed_df=sample_preprocessed_df  # Use preprocessed_df
+                preprocessed_df=sample_preprocessed_df,  # Use preprocessed_df
+                save_figures=True,
+                force_retrain=True,  # Force retrain to ensure model creation
+                return_scores=True  # Set to True to get the return values
             )
             
             # Verify train_AD_model was called with preprocessed_df
@@ -283,11 +292,17 @@ class TestPreprocessedDataframe:
             assert 'preprocessed_df' in kwargs
             assert kwargs['preprocessed_df'] is sample_preprocessed_df
             
-            # Verify get_timeseries_df was called with preprocessed_df
-            mock_get_ts.assert_called_once()
-            _, kwargs = mock_get_ts.call_args
-            assert 'preprocessed_df' in kwargs
-            assert kwargs['preprocessed_df'] is sample_preprocessed_df 
+            # Verify get_timeseries_df was called with building_for_AD=True
+            mock_ad_get_ts.assert_called_once()
+            _, kwargs = mock_ad_get_ts.call_args
+            assert kwargs.get('building_for_AD') is True
+            
+            # Check that the result is as expected
+            assert result is not None
+            mjd_anom, anom_scores, norm_scores = result
+            assert isinstance(mjd_anom, np.ndarray)
+            assert isinstance(anom_scores, np.ndarray)
+            assert isinstance(norm_scores, np.ndarray)
 
     def test_relaiss_class_with_preprocessed_df(self, tmp_path, sample_preprocessed_df):
         """Verify the ReLAISS class correctly caches and uses the preprocessed dataframe.

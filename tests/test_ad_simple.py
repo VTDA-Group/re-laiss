@@ -22,37 +22,51 @@ def test_train_AD_model_simple(tmp_path):
         'host_ra': np.random.uniform(0, 360, 100),
         'host_dec': np.random.uniform(-90, 90, 100),
     })
-
+    
     client = ReLAISS()
     client.load_reference()
+    client.built_for_AD = True  # Set this flag to use preprocessed_df
     
-    with patch('pyod.models.iforest.IForest', autospec=True) as mock_iso:
-        mock_model = MagicMock()
-        mock_model.n_estimators = 100
-        mock_model.contamination = 0.02
-        mock_model.max_samples = 256
-        mock_iso.return_value = mock_model
+    # Create a real IForest instance for training
+    real_forest = IForest(
+        n_estimators=100,
+        contamination=0.02,
+        max_samples=256,
+        behaviour='new',
+        random_state=42
+    )
+    
+    # Mock the pipeline creation
+    mock_pipeline = MagicMock()
+    mock_pipeline.fit.return_value = mock_pipeline
+    
+    with patch('relaiss.anomaly.Pipeline', return_value=mock_pipeline), \
+         patch('joblib.dump') as mock_dump:
+        # Create expected model path
+        expected_path = str(tmp_path / f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl")
+        mock_dump.return_value = None  # joblib.dump returns None
         
-        with patch('joblib.dump') as mock_dump:
-            model_path = train_AD_model(
-                client=client,
-                lc_features=lc_features,
-                host_features=host_features,
-                preprocessed_df=df,
-                path_to_models_directory=str(tmp_path),
-                n_estimators=100,
-                contamination=0.02,
-                max_samples=256,
-                force_retrain=True
-            )
-            
-            assert model_path.endswith('.pkl') or model_path.endswith('.joblib')
-            mock_dump.assert_called_once()
-            
-            model_arg = mock_dump.call_args[0][0]
-            assert model_arg.n_estimators == 100
-            assert model_arg.contamination == 0.02
-            assert model_arg.max_samples == 256
+        model_path = train_AD_model(
+            client=client,
+            lc_features=lc_features,
+            host_features=host_features,
+            preprocessed_df=df,
+            path_to_models_directory=str(tmp_path),
+            n_estimators=100,
+            contamination=0.02,
+            max_samples=256,
+            force_retrain=True
+        )
+        
+        # Verify the model was saved with the correct filename
+        assert model_path == expected_path
+        
+        # Verify joblib.dump was called once to save the model
+        mock_dump.assert_called_once()
+        
+        # Verify the saved model is our mocked pipeline
+        saved_pipeline = mock_dump.call_args[0][0]
+        assert saved_pipeline is mock_pipeline
 
 def test_anomaly_detection_simplified(tmp_path):
     """Test anomaly detection with minimal dependencies."""
@@ -69,25 +83,35 @@ def test_anomaly_detection_simplified(tmp_path):
     real_forest = IForest(n_estimators=10, random_state=42)
     X = np.random.rand(20, 4)
     real_forest.fit(X)
-
+    
     # Define features first
     lc_features = ['g_peak_mag', 'r_peak_mag']
     host_features = ['host_ra', 'host_dec']
-
+    
     client = ReLAISS()
     client.load_reference()
+    client.built_for_AD = True  # Set this flag to use preprocessed_df
     
     model_path = model_dir / "IForest_n=100_c=0.02_m=256.pkl"
     
     with open(model_path, 'wb') as f:
         pickle.dump(real_forest, f)
     
+    # Create preprocessed dataframe
+    df = pd.DataFrame({
+        'g_peak_mag': np.random.normal(20, 1, 100),
+        'r_peak_mag': np.random.normal(19, 1, 100),
+        'host_ra': np.random.uniform(0, 360, 100),
+        'host_dec': np.random.uniform(-90, 90, 100),
+    })
+    
     # Mock functions
     with patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom, \
          patch('relaiss.anomaly.train_AD_model', return_value=str(model_path)), \
          patch('relaiss.anomaly.get_timeseries_df') as mock_ts, \
          patch('relaiss.anomaly.get_TNS_data', return_value=("TestSN", "Ia", 0.1)), \
-         patch('relaiss.features.build_dataset_bank') as mock_build_bank:
+         patch('relaiss.features.build_dataset_bank') as mock_build_bank, \
+         patch('antares_client.search.get_by_ztf_object_id') as mock_antares:
         
         # Configure mocks
         # Store the results so we can return them from our test
@@ -98,8 +122,9 @@ def test_anomaly_detection_simplified(tmp_path):
         
         # Side effect function to capture the result and return it for our test
         def side_effect(*args, **kwargs):
-            return None  # Original function returns None
-            
+            # Return mock values that match the expected unpacking
+            return np.array([58000.0]), np.array([0.5]), np.array([0.75])
+        
         mock_check_anom.side_effect = side_effect
         
         mock_ts.return_value = pd.DataFrame({
@@ -114,6 +139,25 @@ def test_anomaly_detection_simplified(tmp_path):
             'mjd_cutoff': np.linspace(58000, 58050, 10),
             'obs_num': list(range(1, 11))
         })
+        
+        # Configure the mock ANTARES client
+        mock_locus = MagicMock()
+        mock_ts = MagicMock()
+        mock_ts.to_pandas.return_value = pd.DataFrame({
+            'ant_mjd': np.linspace(0, 100, 10),
+            'ant_passband': ['g', 'r'] * 5,
+            'ant_mag': np.random.normal(20, 0.5, 10),
+            'ant_magerr': np.random.uniform(0.01, 0.1, 10),
+            'ant_ra': [150.0] * 10,
+            'ant_dec': [20.0] * 10
+        })
+        mock_locus.timeseries = mock_ts
+        mock_locus.catalog_objects = {
+            "tns_public_objects": [
+                {"name": "TestSN", "type": "Ia", "redshift": 0.1}
+            ]
+        }
+        mock_antares.return_value = mock_locus
         
         # Mock build_dataset_bank to avoid SFD file access
         features_df = pd.DataFrame({
@@ -133,15 +177,21 @@ def test_anomaly_detection_simplified(tmp_path):
             host_features=host_features,
             path_to_timeseries_folder=str(tmp_path),
             path_to_sfd_folder=None,  # This will be ignored due to our mocking
-            path_to_dataset_bank=None,  # This will be ignored due to our mocking
+            path_to_dataset_bank=None,  # Should be None when using preprocessed_df
             path_to_models_directory=str(model_dir),
             path_to_figure_directory=str(figure_dir),
             save_figures=True,
-            force_retrain=False
+            force_retrain=False,
+            preprocessed_df=df,  # Use preprocessed_df
+            return_scores=True  # Set to True to get the return values
         )
         
-        # Verify the mock was called
+        # Verify check_anom_and_plot was called
         mock_check_anom.assert_called_once()
         
-        # Should return None since that's what the function is defined to return
-        assert result is None 
+        # Verify the return values
+        assert result is not None
+        mjd_anom, anom_scores, norm_scores = result
+        assert isinstance(mjd_anom, np.ndarray)
+        assert isinstance(anom_scores, np.ndarray)
+        assert isinstance(norm_scores, np.ndarray) 

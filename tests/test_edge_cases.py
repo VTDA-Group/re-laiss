@@ -52,13 +52,21 @@ def test_missing_error_columns(dataset_bank_path, timeseries_dir, sfd_dir):
         assert 'locus_feat_arr' in result
         assert len(result['locus_feat_arrs_mc_l']) == 2  # Requested 2 MC simulations
 
-def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
+def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir, tmp_path):
     """Test that anomaly detection handles missing ant_mjd column without crashing."""
     lc_features = ['g_peak_mag', 'r_peak_mag']
     host_features = ['host_ra', 'host_dec']
 
     client = ReLAISS()
     client.load_reference()
+    client.built_for_AD = True  # Set this flag to use preprocessed_df
+    
+    # Create necessary directories
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    figure_dir = tmp_path / "figures"
+    figure_dir.mkdir()
+    (figure_dir / "AD").mkdir()
     
     # Create a sample dataframe without ant_mjd column
     test_df = pd.DataFrame({
@@ -76,7 +84,8 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
          patch('joblib.dump'), \
          patch('relaiss.anomaly.get_TNS_data', return_value=("TNS2023abc", "SN Ia", 0.1)), \
          patch('joblib.load', return_value=MagicMock()), \
-         patch('relaiss.anomaly.check_anom_and_plot'):  # Skip plotting
+         patch('relaiss.anomaly.check_anom_and_plot', return_value=(np.array([58000.0]), np.array([0.5]), np.array([0.75]))), \
+         patch('relaiss.features.build_dataset_bank', return_value=test_df):  # Mock build_dataset_bank
         
         # Configure mocks to return dataframes without ant_mjd
         df_without_ant_mjd = pd.DataFrame({
@@ -86,7 +95,8 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
             'host_ra': [150.0],
             'host_dec': [20.0],
             # Intentionally missing ant_mjd
-            'obs_num': [1]
+            'obs_num': [1],
+            'mjd_cutoff': [58000.0]  # Add mjd_cutoff to avoid errors
         })
         mock_timeseries.return_value = df_without_ant_mjd
         mock_ad_timeseries.return_value = df_without_ant_mjd
@@ -98,9 +108,10 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
             lc_features=lc_features,
             host_features=host_features,
             preprocessed_df=test_df,
-            path_to_models_directory="./test_models",
+            path_to_models_directory=str(model_dir),
             n_estimators=10,  # Small for quick test
-            max_samples=8     # Small for quick test
+            max_samples=8,    # Small for quick test
+            force_retrain=True
         )
         
         # Then run anomaly detection
@@ -109,16 +120,24 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,
-            path_to_timeseries_folder=timeseries_dir,
-            path_to_sfd_folder=sfd_dir,
-            path_to_dataset_bank=dataset_bank_path,
-            path_to_models_directory="./test_models",
+            path_to_timeseries_folder=str(timeseries_dir),
+            path_to_sfd_folder=str(sfd_dir),
+            path_to_dataset_bank=str(dataset_bank_path),  # Use the actual dataset bank path
+            path_to_models_directory=str(model_dir),
+            path_to_figure_directory=str(figure_dir),
             preprocessed_df=test_df,
-            save_figures=False
+            save_figures=True,
+            force_retrain=True,
+            return_scores=True  # Set to True to get the return values
         )
         
         # Check that mjd_cutoff was properly handled when ant_mjd was missing
         assert 'mjd_cutoff' in mock_ad_timeseries.return_value.columns, "mjd_cutoff column was not created"
+        assert result is not None
+        mjd_anom, anom_scores, norm_scores = result
+        assert isinstance(mjd_anom, np.ndarray)
+        assert isinstance(anom_scores, np.ndarray)
+        assert isinstance(norm_scores, np.ndarray)
 
 def test_host_feature_length_mismatch(dataset_bank_path, timeseries_dir, sfd_dir):
     """Test that primer handles mismatched host feature lengths."""
@@ -333,6 +352,7 @@ def test_mjd_alignment():
 
     client = ReLAISS()
     client.load_reference()
+    client.built_for_AD = True  # Set this flag to use preprocessed_df
     
     # Create test data with misaligned MJDs
     test_df = pd.DataFrame({
@@ -351,7 +371,8 @@ def test_mjd_alignment():
          patch('joblib.dump'), \
          patch('relaiss.anomaly.get_TNS_data', return_value=("TNS2023abc", "SN Ia", 0.1)), \
          patch('joblib.load', return_value=MagicMock()), \
-         patch('relaiss.anomaly.check_anom_and_plot'):
+         patch('relaiss.anomaly.check_anom_and_plot', return_value=(np.array([58000.0]), np.array([0.5]), np.array([0.75]))), \
+         patch('relaiss.features.build_dataset_bank', return_value=test_df):  # Mock build_dataset_bank
         
         # Configure mock with different MJD values
         mock_df = pd.DataFrame({
@@ -363,7 +384,8 @@ def test_mjd_alignment():
             'r_peak_mag': [19.5],
             'host_ra': [150.0],
             'host_dec': [20.0],
-            'obs_num': [1]
+            'obs_num': [1],
+            'mjd_cutoff': [58000.0]  # Add mjd_cutoff to avoid errors
         })
         mock_timeseries.return_value = mock_df
         mock_ad_timeseries.return_value = mock_df
@@ -376,11 +398,19 @@ def test_mjd_alignment():
             host_features=host_features,
             path_to_timeseries_folder="./test_timeseries",
             path_to_sfd_folder="./test_sfd",
-            path_to_dataset_bank="./test_bank.csv",
+            path_to_dataset_bank=None,  # Should be None when using preprocessed_df
             path_to_models_directory="./test_models",
+            path_to_figure_directory="./test_figures",
             preprocessed_df=test_df,
-            save_figures=False
+            save_figures=False,
+            force_retrain=True,
+            return_scores=True  # Set to True to get the return values
         )
         
         # Verify that mjd_cutoff was properly calculated despite misaligned MJDs
         assert 'mjd_cutoff' in mock_ad_timeseries.return_value.columns
+        assert result is not None
+        mjd_anom, anom_scores, norm_scores = result
+        assert isinstance(mjd_anom, np.ndarray)
+        assert isinstance(anom_scores, np.ndarray)
+        assert isinstance(norm_scores, np.ndarray)

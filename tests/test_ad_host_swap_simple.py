@@ -70,7 +70,8 @@ def test_ad_host_swap_simple(tmp_path):
         
         # Mock the anomaly detection results
         def side_effect(*args, **kwargs):
-            return None  # Original function returns None
+            # Return mock values that match the expected unpacking
+            return np.array([58000.0]), np.array([0.5]), np.array([0.75])
             
         mock_check_anom.side_effect = side_effect
         

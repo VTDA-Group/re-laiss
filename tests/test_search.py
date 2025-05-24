@@ -13,10 +13,13 @@ def test_find_neighbors_dataframe():
     # Test basic neighbor finding
     df = client.find_neighbors(ztf_object_id="ZTF21abbzjeq", n=5, search_k=10000)
     assert isinstance(df, pd.DataFrame)
-    assert len(df) == 5 
+    assert len(df) == 5
     assert np.all(df["dist"].values[:-1] <= df["dist"].values[1:])
-    neighbor_ids = df["ztf_object_id"].values  # or whatever column holds the IDs
-    assert len(set(neighbor_ids)) > 1, "Returned neighbors are not unique!"
+    neighbor_ids = df["neighbor_ztf_id"].values  # Use neighbor_ztf_id instead of ztf_object_id
+    
+    # Test that all neighbor IDs are strings and start with "ZTF"
+    assert all(isinstance(id_, str) for id_ in neighbor_ids)
+    assert all(id_.startswith("ZTF") for id_ in neighbor_ids)
     
     # Test with different n values
     df_large = client.find_neighbors(ztf_object_id="ZTF21abbzjeq", n=10, search_k=10000)

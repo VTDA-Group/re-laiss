@@ -12,51 +12,80 @@ import relaiss as relaiss
 
 def test_train_AD_model_simple(tmp_path):
     """Test training AD model with simplified mocks."""
-    # Create a simple DataFrame with the necessary features
+    from relaiss.anomaly import train_AD_model
+    
     lc_features = ['g_peak_mag', 'r_peak_mag']
     host_features = ['host_ra', 'host_dec']
     
-    # Mock preprocessed dataframe
     df = pd.DataFrame({
         'g_peak_mag': np.random.normal(20, 1, 100),
         'r_peak_mag': np.random.normal(19, 1, 100),
         'host_ra': np.random.uniform(0, 360, 100),
         'host_dec': np.random.uniform(-90, 90, 100),
     })
+
+    client = relaiss.ReLAISS()
+    client.load_reference()
+    client.built_for_AD = True  # Set this flag to use preprocessed_df
+
+    # Create a mock scaler
+    mock_scaler = MagicMock()
+    mock_scaler.fit_transform.return_value = np.random.rand(100, 4)  # Return some dummy transformed data
     
-    # Mock the IForest and joblib
-    with patch('pyod.models.iforest.IForest', autospec=True) as mock_iso:
-        mock_model = MagicMock()
-        mock_model.n_estimators = 100
-        mock_model.contamination = 0.02
-        mock_model.max_samples = 256
-        mock_iso.return_value = mock_model
+    # Create a mock pipeline with all required attributes
+    mock_pipeline = MagicMock()
+    mock_pipeline.named_steps = {
+        'scaler': mock_scaler,
+        'clf': MagicMock(
+            n_estimators=100,
+            contamination=0.02,
+            max_samples=256
+        )
+    }
+    mock_pipeline.fit.return_value = mock_pipeline
+    
+    with patch('relaiss.anomaly.Pipeline', return_value=mock_pipeline) as mock_pipeline_class, \
+         patch('relaiss.anomaly.StandardScaler', return_value=mock_scaler) as mock_scaler_class, \
+         patch('joblib.dump') as mock_dump:
+        # Make mock_dump create empty files
+        def side_effect(model, path, *args, **kwargs):
+            Path(path).touch()
+        mock_dump.side_effect = side_effect
         
-        with patch('joblib.dump') as mock_dump:
-            # Run the function
-            model_path = train_AD_model(
-                lc_features=lc_features,
-                host_features=host_features,
-                preprocessed_df=df,
-                path_to_models_directory=str(tmp_path),
-                n_estimators=100,
-                contamination=0.02,
-                max_samples=256,
-                force_retrain=True
-            )
-            
-            # Don't check exact filename - it depends on the implementation
-            # Instead check that it ends with .pkl or .joblib
-            assert model_path.endswith('.pkl') or model_path.endswith('.joblib')
-            
-            # Verify joblib.dump was called
-            mock_dump.assert_called_once()
-            
-            # Extract the model from the call
-            model_arg = mock_dump.call_args[0][0]
-            assert model_arg.n_estimators == 100
-            assert model_arg.contamination == 0.02
-            assert model_arg.max_samples == 256
+        model_path = train_AD_model(
+            client=client,
+            lc_features=lc_features,
+            host_features=host_features,
+            preprocessed_df=df,
+            path_to_models_directory=str(tmp_path),
+            n_estimators=100,
+            contamination=0.02,
+            max_samples=256,
+            force_retrain=True
+        )
+        
+        # Verify the model was saved with the correct filename
+        expected_filename = f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl"
+        assert model_path.endswith(expected_filename)
+        
+        # Verify joblib.dump was called twice - once for scaler and once for pipeline
+        assert mock_dump.call_count == 2
+        
+        # First call should be to save the scaler
+        first_call_args = mock_dump.call_args_list[0][0]
+        assert first_call_args[0] is mock_scaler
+        assert first_call_args[1].endswith('scaler.joblib')
+        
+        # Second call should be to save the pipeline
+        second_call_args = mock_dump.call_args_list[1][0]
+        assert second_call_args[0] is mock_pipeline
+        assert second_call_args[1] == model_path
+        
+        # Verify the pipeline has the correct parameters
+        iforest = mock_pipeline.named_steps['clf']
+        assert iforest.n_estimators == 100
+        assert iforest.contamination == 0.02
+        assert iforest.max_samples == 256
 
 def test_anomaly_detection_simplified(tmp_path):
     """Test anomaly detection with minimal dependencies."""
@@ -129,8 +158,12 @@ def test_anomaly_detection_simplified(tmp_path):
         }
         mock_antares.return_value = mock_locus
         
-        # Mock check_anom_and_plot to return None
-        mock_check_anom.return_value = None
+        # Mock check_anom_and_plot to return a tuple of three values
+        mock_check_anom.return_value = (
+            np.array([58000, 58010, 58020]),  # mjd_anom
+            np.array([0.1, 0.2, 0.3]),  # anom_scores
+            np.array([0.4, 0.5, 0.6])  # norm_scores
+        )
 
         client = relaiss.ReLAISS()
         client.load_reference()

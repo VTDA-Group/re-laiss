@@ -77,9 +77,17 @@ def test_train_AD_model_with_preprocessed_df(tmp_path, sample_preprocessed_df):
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
     host_features = ['host_ra', 'host_dec', 'gKronMag', 'rKronMag']
     
+    # Create a dummy dataset bank file
+    dummy_bank_path = tmp_path / "dummy_bank.csv"
+    sample_preprocessed_df.to_csv(dummy_bank_path, index=False)
+    
     # Mock build_dataset_bank to verify it's not called when preprocessed_df is provided
     with patch('relaiss.features.build_dataset_bank') as mock_build_dataset, \
          patch('joblib.dump') as mock_dump:
+        
+        client = rl.ReLAISS()
+        client.load_reference()
+        client.built_for_AD = True  # Set this flag to use preprocessed_df
         
         # Call train_AD_model with preprocessed_df
         model_path = train_AD_model(
@@ -87,6 +95,7 @@ def test_train_AD_model_with_preprocessed_df(tmp_path, sample_preprocessed_df):
             lc_features=lc_features,
             host_features=host_features,
             preprocessed_df=sample_preprocessed_df,
+            path_to_dataset_bank=str(dummy_bank_path),  # Add dummy path
             path_to_models_directory=str(tmp_path),
             n_estimators=100,
             contamination=0.02,
@@ -97,8 +106,18 @@ def test_train_AD_model_with_preprocessed_df(tmp_path, sample_preprocessed_df):
         # Verify build_dataset_bank was not called
         mock_build_dataset.assert_not_called()
         
-        # Verify joblib.dump was called with the right parameters
-        mock_dump.assert_called_once()
+        # Verify joblib.dump was called twice - once for scaler and once for pipeline
+        assert mock_dump.call_count == 2
+        
+        # First call should be to save the scaler
+        first_call_args = mock_dump.call_args_list[0][0]
+        assert 'StandardScaler' in str(type(first_call_args[0]))
+        assert first_call_args[1].endswith('_scaler.joblib')
+        
+        # Second call should be to save the pipeline
+        second_call_args = mock_dump.call_args_list[1][0]
+        assert 'Pipeline' in str(type(second_call_args[0]))
+        assert second_call_args[1] == model_path
         
         # Check that model_path includes feature counts in the filename
         num_lc_features = len(lc_features)
@@ -141,6 +160,7 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
 
     client = rl.ReLAISS()
     client.load_reference()
+    client.built_for_AD = False  # Set this flag to use raw data path
     
     # Get expected model path with feature counts included in the filename
     num_lc_features = len(lc_features)
@@ -172,6 +192,11 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
         mock_client.bank_csv = str(mock_bank_path)
         mock_client_class.return_value = mock_client
         
+        # Make mock_dump create empty files
+        def side_effect(model, path, *args, **kwargs):
+            Path(path).touch()
+        mock_dump.side_effect = side_effect
+        
         # Execute the function
         model_path = train_AD_model(
             client=client,
@@ -189,13 +214,20 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
         # Verify the model path is correct
         assert model_path == expected_model_path
         
-        # Verify joblib.dump was called with appropriate arguments
+        # When using raw data, joblib.dump is only called once to save the pipeline
         mock_dump.assert_called_once()
-        # Check the first argument is an IForest model
-        model = mock_dump.call_args[0][0]
-        assert model.n_estimators == 100
-        assert model.contamination == 0.02
-        assert model.max_samples == 256
+        
+        # Verify the saved pipeline has the correct parameters
+        saved_pipeline = mock_dump.call_args[0][0]
+        assert 'Pipeline' in str(type(saved_pipeline))
+        assert mock_dump.call_args[0][1] == model_path
+        
+        # Verify the pipeline has the correct parameters
+        pipeline = saved_pipeline
+        iforest = pipeline.named_steps['clf']
+        assert iforest.n_estimators == 100
+        assert iforest.contamination == 0.02
+        assert iforest.max_samples == 256
 
 def test_train_AD_model_invalid_input():
     """Test error handling for invalid inputs."""
