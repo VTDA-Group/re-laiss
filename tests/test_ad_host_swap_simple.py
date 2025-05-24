@@ -4,7 +4,7 @@ import numpy as np
 import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from sklearn.ensemble import IForest
+from pyod import IForest
 
 def test_ad_host_swap_simple(tmp_path):
     """Test anomaly detection with host swap using direct mocking."""

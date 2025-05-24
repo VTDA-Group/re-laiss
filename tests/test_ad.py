@@ -338,7 +338,7 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
     with patch('relaiss.features.build_dataset_bank', return_value=sample_preprocessed_df), \
          patch('relaiss.anomaly.get_timeseries_df', return_value=mock_timeseries_df), \
          patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
-         patch('sklearn.ensemble.IForest', return_value=mock_forest), \
+         patch('pyod.IForest', return_value=mock_forest), \
          patch('joblib.dump'), \
          patch('joblib.load', return_value=mock_forest), \
          patch('pickle.load', return_value=mock_forest), \
@@ -512,7 +512,7 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
     with patch('relaiss.features.build_dataset_bank', return_value=combined_df), \
          patch('relaiss.anomaly.get_timeseries_df') as mock_get_ts, \
          patch('relaiss.anomaly.get_TNS_data', return_value=("MockSN", "Ia", 0.1)), \
-         patch('sklearn.ensemble.IForest', return_value=mock_forest), \
+         patch('pyod.IForest', return_value=mock_forest), \
          patch('joblib.dump'), \
          patch('joblib.load', return_value=mock_forest), \
          patch('pickle.load', return_value=mock_forest), \

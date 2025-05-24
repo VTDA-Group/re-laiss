@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 import tempfile
 from pathlib import Path
 from relaiss.anomaly import train_AD_model
-from sklearn.ensemble import IForest
+from pyod import IForest
 
 def test_train_AD_model_with_preprocessed_df():
     """Test training AD model with preprocessed dataframe."""
