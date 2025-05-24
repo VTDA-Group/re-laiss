@@ -7,7 +7,7 @@ import pickle
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from relaiss.anomaly import train_AD_model
-from pyod.models import IForest
+from pyod.models.iforest import IForest
 
 def test_train_AD_model_simple(tmp_path):
     """Test training AD model with simplified mocks."""
@@ -24,7 +24,7 @@ def test_train_AD_model_simple(tmp_path):
     })
     
     # Mock the IForest and joblib
-    with patch('pyod.models.IForest', autospec=True) as mock_iso:
+    with patch('pyod.models.iforest.IForest', autospec=True) as mock_iso:
         mock_model = MagicMock()
         mock_model.n_estimators = 100
         mock_model.contamination = 0.02
