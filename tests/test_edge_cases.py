@@ -56,6 +56,9 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
     """Test that anomaly detection handles missing ant_mjd column without crashing."""
     lc_features = ['g_peak_mag', 'r_peak_mag']
     host_features = ['host_ra', 'host_dec']
+
+    client = ReLAISS()
+    client.load_reference()
     
     # Create a sample dataframe without ant_mjd column
     test_df = pd.DataFrame({
@@ -101,6 +104,7 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir):
         
         # Then run anomaly detection
         result = anomaly_detection(
+            client=client,
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from pyod.models.iforest import IForest
+import relaiss as rl
 
 def test_ad_host_swap_simple(tmp_path):
     """Test anomaly detection with host swap using direct mocking."""
@@ -73,9 +74,13 @@ def test_ad_host_swap_simple(tmp_path):
         
         # Create a figure to satisfy existence check
         (figure_dir / "AD" / "ZTF21abbzjeq_w_host_ZTF19aaaaaaa_AD.pdf").touch()
+
+        client = rl.ReLAISS()
+        client.load_reference()
         
         # Run function with host swap
         result = anomaly_detection(
+            client=client,
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,

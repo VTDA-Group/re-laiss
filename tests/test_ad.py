@@ -372,6 +372,9 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
         
         # Mock check_anom_and_plot to just return without error
         mock_check_anom.return_value = None
+   
+        client = rl.ReLAISS()
+        client.load_reference()
         
         # Run the function
         result = anomaly_detection(
@@ -554,6 +557,9 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
         
         # Mock check_anom_and_plot to just return without error
         mock_check_anom.return_value = None
+
+        client = rl.ReLAISS()
+        client.load_reference()
         
         # Run the function with host swap
         result = anomaly_detection(

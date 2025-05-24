@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from relaiss.anomaly import train_AD_model
 from pyod.models.iforest import IForest
+import relaiss as relaiss
 
 def test_train_AD_model_simple(tmp_path):
     """Test training AD model with simplified mocks."""
@@ -130,9 +131,13 @@ def test_anomaly_detection_simplified(tmp_path):
         
         # Mock check_anom_and_plot to return None
         mock_check_anom.return_value = None
+
+        client = rl.ReLAISS()
+        client.load_reference()
         
         # Run anomaly detection function
         result = anomaly_detection(
+            client=client,
             transient_ztf_id="ZTF21abbzjeq",
             lc_features=lc_features,
             host_features=host_features,
