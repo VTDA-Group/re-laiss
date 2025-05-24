@@ -26,6 +26,7 @@ def primer(
     host_features=[],
     num_sims=0,
     preprocessed_df=None,
+    random_seed=42,
 ):
     """Assemble input feature vectors (and MC replicas) for a query object.
 
@@ -89,6 +90,10 @@ def primer(
         If NaN features are found in timeseries data
     """
     feature_names = lc_features + host_features
+    host_locus_feat_arr = None
+    host_tns_name = host_tns_cls = host_tns_z = None
+    host_ztf_id_in_dataset_bank = None
+
     if lc_ztf_id is not None and theorized_lightcurve_df is not None:
         print(
             "Expected only one of theorized_lightcurve_df and transient_ztf_id. Try again!"
@@ -117,87 +122,119 @@ def primer(
     # Loop through lightcurve object and host object to create feature array
     for ztf_id, host_loop in [(lc_ztf_id, False), (host_ztf_id, True)]:
 
-        # Skip host loop if host galaxy to swap is not provided
         if host_loop and ztf_id is None:
             continue
 
-        ztf_id_in_dataset_bank = False
+        if ztf_id is None and not host_loop:
+            ts = get_timeseries_df(
+                ztf_id=None,
+                theorized_lightcurve_df=theorized_lightcurve_df,
+                path_to_timeseries_folder=path_to_timeseries_folder,
+                path_to_sfd_folder=path_to_sfd_folder,
+                path_to_dataset_bank=dataset_bank_path,
+                save_timeseries=save_timeseries,
+                swapped_host=False,
+            )
+
+            # Skip host loop if host galaxy to swap is not provided
+            ts = ts.dropna(subset=lc_features)
+
+            locus_feat_series = ts[lc_features].iloc[-1]
+            locus_feat_arr    = locus_feat_series.values
+
+            lc_tns_name, lc_tns_cls, lc_tns_z = "No TNS", "---", -99
+            lc_ztf_id_in_dataset_bank = False
+            lc_galaxy_ra, lc_galaxy_dec = np.nan, np.nan
+
+            ztf_id_in_dataset_bank = False
+
+            lc_locus_feat_arr = locus_feat_series
+
+            continue
 
         # Check if ztf_id is in dataset bank
-        try:
-            if preprocessed_df is not None:
-                df_bank = preprocessed_df.copy()
-                # Make sure we have ztf_object_id as expected
-                if 'ZTFID' in df_bank.columns:
-                    df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
-                if 'ztf_object_id' not in df_bank.columns:
-                    raise ValueError("preprocessed_df must contain a 'ztf_object_id' column")
-                df_bank = df_bank.set_index("ztf_object_id", drop=True)
+        if preprocessed_df is not None:
+            df_bank = preprocessed_df.copy()
+            # Make sure we have ztf_object_id as expected
+            if 'ZTFID' in df_bank.columns:
+                df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+            if 'ztf_object_id' not in df_bank.columns:
+                raise ValueError("preprocessed_df must contain a 'ztf_object_id' column")
+            df_bank = df_bank.set_index("ztf_object_id", drop=True)
+        else:
+            df_bank = pd.read_csv(dataset_bank_path, low_memory=False)
+            # Normalize column names - make sure we use ztf_object_id consistently
+            if 'ZTFID' in df_bank.columns:
+                df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+            df_bank = df_bank.set_index("ztf_object_id", drop=True)
+
+        # Check to make sure all features are in the dataset bank
+        missing_cols = [col for col in feature_names if col not in df_bank.columns]
+        if missing_cols:
+            raise KeyError(
+                f"KeyError: The following columns are not in the raw data provided: {missing_cols}. Abort!"
+            )
+
+        # ------------------------------------------------------------------
+        if host_loop and ztf_id not in df_bank.index:          # ← add host_loop check
+            print(f"{ztf_id} not in dataset bank – extracting host features directly.")
+
+            ts_host = get_timeseries_df(
+                ztf_id                  = ztf_id,
+                theorized_lightcurve_df = None,
+                path_to_timeseries_folder = path_to_timeseries_folder,
+                path_to_sfd_folder      = path_to_sfd_folder,
+                path_to_dataset_bank    = dataset_bank_path,
+                save_timeseries         = save_timeseries,
+                swapped_host            = True,
+                preprocessed_df         = preprocessed_df,
+            )
+
+            ts_host = ts_host.dropna(subset=host_features)
+            if ts_host.empty:
+                raise ValueError(f"{ztf_id} has NaNs in host features – abort.")
+
+            host_locus_feat_arr         = ts_host[host_features].iloc[-1].values
+            host_ztf_id_in_dataset_bank = False
+
+            # ⇢ make sure TNS variables exist
+            host_tns_name, host_tns_cls, host_tns_z = "No TNS", "---", -99
+
+            if {"raMean", "decMean"}.issubset(ts_host.columns):
+                host_galaxy_ra  = ts_host["raMean"].iloc[0]
+                host_galaxy_dec = ts_host["decMean"].iloc[0]
+            elif {"host_ra", "host_dec"}.issubset(ts_host.columns):
+                host_galaxy_ra  = ts_host["host_ra"].iloc[0]
+                host_galaxy_dec = ts_host["host_dec"].iloc[0]
             else:
-                df_bank = pd.read_csv(dataset_bank_path, low_memory=False)
-                # Normalize column names - make sure we use ztf_object_id consistently
-                if 'ZTFID' in df_bank.columns:
-                    df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
-                df_bank = df_bank.set_index("ztf_object_id", drop=True)
+                host_galaxy_ra = host_galaxy_dec = np.nan
 
-            # Check to make sure all features are in the dataset bank
-            missing_cols = [col for col in feature_names if col not in df_bank.columns]
-            if missing_cols:
-                raise KeyError(
-                    f"KeyError: The following columns are not in the raw data provided: {missing_cols}. Abort!"
-                )
+            continue                                   # skip dataframe-based path
+        # ------------------------------------------------------------------
 
-            # Check if the ZTF ID exists in the dataset
-            if ztf_id not in df_bank.index:
-                print(f"{ztf_id} is not in dataset_bank.")
-                raise KeyError(f"ZTF ID {ztf_id} not found in dataset bank")
+        locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
 
-            locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
+        ztf_id_in_dataset_bank = True
 
-            print(f"{ztf_id} is in dataset_bank.")
-            ztf_id_in_dataset_bank = True
+        df_bank_input_only = df_bank.loc[[ztf_id]]
+        if host_loop:
+            host_galaxy_ra = df_bank_input_only.iloc[0].host_ra
+            host_galaxy_dec = df_bank_input_only.iloc[0].host_dec
+        else:
+            lc_galaxy_ra = df_bank_input_only.iloc[0].host_ra
+            lc_galaxy_dec = df_bank_input_only.iloc[0].host_dec
 
-            df_bank_input_only = df_bank.loc[[ztf_id]]
-            if host_loop:
-                host_galaxy_ra = df_bank_input_only.iloc[0].host_ra
-                host_galaxy_dec = df_bank_input_only.iloc[0].host_dec
-            else:
-                lc_galaxy_ra = df_bank_input_only.iloc[0].host_ra
-                lc_galaxy_dec = df_bank_input_only.iloc[0].host_dec
-
-            if save_timeseries:
-                timeseries_df = get_timeseries_df(
-                    ztf_id=ztf_id,
-                    theorized_lightcurve_df=None,
-                    path_to_timeseries_folder=path_to_timeseries_folder,
-                    path_to_sfd_folder=path_to_sfd_folder,
-                    path_to_dataset_bank=dataset_bank_path,
-                    save_timeseries=save_timeseries,
-                    swapped_host=host_loop,
-                    preprocessed_df=preprocessed_df,
-                )
-
-        # If ztf_id is not in dataset bank...
-        except KeyError as e:
-            # If ZTF ID is not found or feature columns don't exist
-            print(f"Error extracting features for {ztf_id}: {str(e)}")
-            if ztf_id in df_bank.index:
-                # ZTF ID exists but some feature columns are missing
-                print(f"ZTF ID {ztf_id} found in dataset bank, but some required feature columns are missing.")
-                # Initialize array of zeros
-                locus_feat_arr = np.zeros(len(feature_names))
-                # Fill in the values we do have
-                for i, feat in enumerate(feature_names):
-                    try:
-                        locus_feat_arr[i] = df_bank.loc[ztf_id, feat]
-                    except (KeyError, TypeError):
-                        # Skip if feature doesn't exist
-                        pass
-            else:
-                # ZTF ID doesn't exist
-                print(f"ZTF ID {ztf_id} not found in dataset bank.")
-                # Return array of zeros as a fallback
-                locus_feat_arr = np.zeros(len(feature_names))
+        if save_timeseries:
+            timeseries_df = get_timeseries_df(
+                ztf_id=ztf_id,
+                theorized_lightcurve_df=None,
+                path_to_timeseries_folder=path_to_timeseries_folder,
+                path_to_sfd_folder=path_to_sfd_folder,
+                path_to_dataset_bank=dataset_bank_path,
+                save_timeseries=save_timeseries,
+                swapped_host=host_loop,
+                preprocessed_df=preprocessed_df,
+            )
 
             # Extract timeseries dataframe
             if ztf_id is not None:
@@ -317,11 +354,8 @@ def primer(
             locus_feat_series = locus_feat_series.reindex(feature_names)
         else:
             # Handle the case where one or both aren't from the dataset bank
-            if isinstance(lc_locus_feat_arr, pd.Series):
-                subset_lc = lc_locus_feat_arr[lc_features]
-            else:
-                # If it's already a numpy array, create a Series with the right index
-                subset_lc = pd.Series(lc_locus_feat_arr, index=lc_features)
+            lc_vals = np.asarray(lc_locus_feat_arr)[:len(lc_features)]  # keep only LC part
+            subset_lc = pd.Series(lc_vals, index=lc_features)
 
             if isinstance(host_locus_feat_arr, pd.Series):
                 subset_host = host_locus_feat_arr[host_features]
@@ -363,7 +397,8 @@ def primer(
                 locus_feat_df[error_name] = locus_feat_series[error_name]
 
     # Create Monte Carlo copies locus_feat_arrays_l
-    np.random.seed(888)
+    np.random.seed(random_seed)
+
     locus_feat_arrs_mc_l = []
     for _ in range(num_sims):
         locus_feat_df_for_mc = locus_feat_df.copy()

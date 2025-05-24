@@ -149,9 +149,6 @@ def build_indexed_sample(
             # Save the PCA model
             joblib.dump(pcaModel, f"{index_stem_name_with_path}_pca.joblib")
 
-            print("First 5 PCA feature rows:")
-            print(feat_arr_scaled_pca[:5])
-
         else:
             np.save(
                 f"{index_stem_name_with_path}_feat_arr_scaled.npy",

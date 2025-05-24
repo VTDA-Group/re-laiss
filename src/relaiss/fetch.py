@@ -174,7 +174,7 @@ def get_timeseries_df(
     building_for_AD : bool, default False
     swapped_host : bool, default False
     preprocessed_df : pandas.DataFrame | None, default None
-        Pre-processed dataframe with imputed features. If provided, this is used 
+        Pre-processed dataframe with imputed features. If provided, this is used
         instead of loading and processing the raw dataset bank.
 
     Returns
@@ -199,7 +199,7 @@ def get_timeseries_df(
             swapped_host=swapped_host,
             preprocessed_df=preprocessed_df,
         )
-        
+
     # Generate cache key based on input parameters
     cache_params = {
         'ztf_id': ztf_id,

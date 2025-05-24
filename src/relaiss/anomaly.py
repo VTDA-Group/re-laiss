@@ -145,6 +145,7 @@ def anomaly_detection(
     n_estimators=500,
     contamination=0.02,
     max_samples=1024,
+    anom_thresh=50,
     force_retrain=True,
     preprocessed_df=None,
     return_scores=False
@@ -221,8 +222,7 @@ def anomaly_detection(
         path_to_sfd_folder=path_to_sfd_folder,
         path_to_dataset_bank=path_to_dataset_bank,
         save_timeseries=True,
-        building_for_AD=True#,
-    #    preprocessed_df=preprocessed_df,
+        building_for_AD=True
     )
 
     if host_ztf_id_to_swap_in is not None:
@@ -235,8 +235,7 @@ def anomaly_detection(
             path_to_dataset_bank=path_to_dataset_bank,
             save_timeseries=False,
             building_for_AD=True,
-            swapped_host=True#,
-            #preprocessed_df=preprocessed_df,
+            swapped_host=True
         )
 
         host_values = swapped_host_timeseries_df[host_features].iloc[0]
@@ -261,7 +260,7 @@ def anomaly_detection(
             swapped_host_ztf_id=host_ztf_id_to_swap_in,
             input_spec_cls=tns_cls,
             input_spec_z=tns_z,
-            anom_thresh=70,
+            anom_thresh=anom_thresh,
             timeseries_df_full=timeseries_df,
             timeseries_df_features_only=timeseries_df_filt_feats,
             ref_info=input_lightcurve_locus,
@@ -340,8 +339,8 @@ def check_anom_and_plot(
 
     except:
         print(
-            f"Prediction doesn't exceed anom_threshold of {anom_thresh}% for {input_ztf_id}."
-            + (f" with host from {swapped_host_ztf_id}" if swapped_host_ztf_id else "")
+            f"Prediction doesn't exceed anom_threshold of {anom_thresh}% for {input_ztf_id}"
+            + (f" with host from {swapped_host_ztf_id}" if swapped_host_ztf_id else ".")
         )
         anom_idx_is = False
 

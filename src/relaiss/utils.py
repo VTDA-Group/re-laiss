@@ -8,6 +8,17 @@ import pickle
 from pathlib import Path
 import pandas as pd
 import hashlib, json
+import math
+
+def _fmt_z(val: float | None) -> str:
+    """Right-aligned z column; '---' if missing."""
+    if val is None or (isinstance(val, (float, int)) and math.isnan(val)):
+        return "---"
+    return f"{val:7.3f}"
+
+def _fmt_txt(text: str | None, width: int) -> str:
+    """Text column with fallback ‘---’."""
+    return (text or "---").ljust(width)[:width]
 
 def compress(obj) -> str:
     """Return a short hash of any JSON-serialisable object."""

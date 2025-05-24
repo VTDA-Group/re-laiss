@@ -96,8 +96,6 @@ def build_dataset_bank(
     if cached_df is not None:
         if not building_for_AD:
             print("Loading preprocessed features from cache...")
-        else:
-            print("LOADING CACHED DATAFRAME!")
         return cached_df
 
     if not building_for_AD:

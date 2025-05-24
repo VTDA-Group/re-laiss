@@ -30,7 +30,8 @@ from .utils import (
     load_cached_dataframe,
     cache_dataframe,
     get_cache_dir,
-    compress
+    compress,
+    _fmt_z, _fmt_txt
 )
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
@@ -280,7 +281,6 @@ class ReLAISS:
 
         pca = None
         if use_pca:
-            print("Using PCA...")
             feat_arr_scaled = np.load(
                 str(index_stem) + ("_feat_arr_scaled_pca.npy" )
             )
@@ -302,15 +302,12 @@ class ReLAISS:
         self.lc_features = lc_features
         self.path_to_sfd_folder = path_to_sfd_folder
         self.host_features = host_features
-        self.feat_arr_scaled = feat_arr_scaled
         self.bank_csv = bank_path
         self.weight_lc = weight_lc
         self.random_seed = random_seed
 
         dim = pca.n_components_ if pca else len(lc_features + host_features)
-        # Use Manhattan distance to match reference implementation
         self._index = annoy.AnnoyIndex(dim, metric="manhattan")
-        print("Index:",self.index_stem)
         self._index.load(str(self.index_stem) + ".ann")
         print(f"Loaded index with {self._index.get_n_items()} items")
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
@@ -394,56 +391,25 @@ class ReLAISS:
         annoy_index_file_stem = self.index_stem
         dataset_bank = Path(path_to_dataset_bank or self.bank_csv)
 
-        try:
-            primer_dict = primer(
-                lc_ztf_id=ztf_object_id,
-                theorized_lightcurve_df=theorized_lightcurve_df,
-                host_ztf_id=host_ztf_id,
-                dataset_bank_path=dataset_bank,
-                path_to_timeseries_folder='./',
-                path_to_sfd_folder=self.path_to_sfd_folder,
-                lc_features=self.lc_features,
-                host_features=self.host_features,
-                num_sims=num_sims,
-                save_timeseries=False,
-                preprocessed_df=self.hydrated_bank,
-            )
-        except Exception as e:
-            print(f"Error during host processing: {str(e)}")
-            if host_ztf_id is not None:
-                print(f"Trying again without host galaxy {host_ztf_id}...")
-                # Fall back to using just the source transient without host
-                try:
-                    primer_dict = primer(
-                        lc_ztf_id=ztf_object_id,
-                        theorized_lightcurve_df=theorized_lightcurve_df,
-                        host_ztf_id=None,  # Remove host
-                        dataset_bank_path=dataset_bank,
-                        path_to_timeseries_folder='./',
-                        path_to_sfd_folder=self.path_to_sfd_folder,
-                        lc_features=self.lc_features,
-                        host_features=self.host_features,
-                        num_sims=num_sims,
-                        save_timeseries=False,
-                        preprocessed_df=self.hydrated_bank,
-                    )
-                    print("Successfully processed without host galaxy.")
-                except Exception as e2:
-                    print(f"Failed to process even without host galaxy: {str(e2)}")
-                    raise ValueError(f"Could not process transient: {str(e)}")
-            else:
-                raise ValueError(f"Error processing transient: {str(e)}")
+        primer_dict = primer(
+            lc_ztf_id=ztf_object_id,
+            theorized_lightcurve_df=theorized_lightcurve_df,
+            host_ztf_id=host_ztf_id,
+            dataset_bank_path=dataset_bank,
+            path_to_timeseries_folder='./',
+            path_to_sfd_folder=self.path_to_sfd_folder,
+            lc_features=self.lc_features,
+            host_features=self.host_features,
+            num_sims=num_sims,
+            save_timeseries=False,
+            preprocessed_df=self.hydrated_bank,
+        )
 
         start_time = time.time()
         index_file = str(annoy_index_file_stem) + ".ann"
 
-        #if 'ztf_object_id' in self.hydrated_bank.columns:
-        #    self.hydrated_bank = self.hydrated_bank.set_index('ztf_object_id')
-
         if n is None or n <= 0:
             raise ValueError("Neighbor number must be a nonzero integer. Abort!")
-        else:
-            print(f"Requesting {n} neighbors from Annoy")
 
         plot_label = (
             f"{primer_dict['lc_ztf_id'] if primer_dict['lc_ztf_id'] is not None else 'theorized_lc'}"
@@ -496,34 +462,9 @@ class ReLAISS:
                         print(f"Upweighting light curve features by a factor of {self.weight_lc:.1f}.")
                     scaled *= self.weight_lc
 
-            if self.use_pca:
-                # Step 1: check the PCA dimension
-                print(f"PCA components expected: {self.pca.n_components_}")
-                print(f"PCA query shape: {scaled_vector.shape}")  # Should be (5,)
-
-            # Step 2: check the index dimension
-            print(f"ANNOY index dimension: {self._index.f}")  # Must match PCA components
-
-            # Step 3: check the entire bank shape and its index
-            print(f"Index feature matrix shape: {self.feat_arr_scaled.shape}")
-            print(f"Number of items in Annoy index: {self._index.get_n_items()}")
-            print(f"Length of self._ids: {len(self._ids)}")
-
-            # Get neighbors for this feature array
-            # Make sure to request enough neighbors (n+1) since we might need to remove the query object
-            print("Stats for scaled vector:")
-            from scipy import stats
-            print(stats.describe(scaled_vector))
-            print("Stats for reference databank:")
-            print(stats.describe(self.feat_arr_scaled))
-            print(np.any(np.isnan(scaled_vector)))
-            print(np.any(~np.isfinite(scaled_vector)))
-
             idxs, dists = self._index.get_nns_by_vector(
                 scaled_vector, n=n+100, search_k=search_k, include_distances=True
             )
-
-            print(f"Annoy actually returned {len(idxs)} ids, unique = {len(set(idxs))}")
 
             # Store neighbors and distances in dictionary
             for idx, dist in zip(idxs, dists):
@@ -562,8 +503,8 @@ class ReLAISS:
         ann_end_time = time.time()
         ann_elapsed_time = ann_end_time - start_time
         elapsed_time = time.time() - start_time
-        print(f"\nANN elapsed_time: {round(ann_elapsed_time, 3)} s")
-        print(f"total elapsed_time: {round(elapsed_time, 3)} s\n")
+        print(f"\nANN elapsed time: {round(ann_elapsed_time, 3)} s")
+        print(f"Total elapsed time: {round(elapsed_time, 3)} s\n")
 
         # Find optimal number of neighbors
         if suggest_neighbor_num:
@@ -668,18 +609,45 @@ class ReLAISS:
             tns_ann_zs.append(tns_ann_z)
 
         # Print the nearest neighbors and organize them for storage
+        hdr_fmt = "{:<8} {:<13} {:<10} {:<8} {:>7}"       # tag, ZTFID, IAU, class, z
+        print(hdr_fmt.format("", "ZTF ID", "IAU Name", "Spec", "z"))
+
+        # input object (real or theoretical)
         if primer_dict["lc_ztf_id"]:
-            print("\t\t\t\t\t\t ztf_object_id     IAU_NAME SPEC  Z")
-        else:
-            print("\t\t\t\t\tIAU  SPEC  Z")
-        print(
-            f"Input transient: {'https://alerce.online/object/'+primer_dict['lc_ztf_id'] if primer_dict['lc_ztf_id'] else 'Theorized Lightcurve,'} {primer_dict['lc_tns_name']} {primer_dict['lc_tns_cls']} {primer_dict['lc_tns_z']}\n"
-        )
-        if primer_dict["host_ztf_id"] is not None:
-            print("\t\t\t\t\t\t\t\t\tztf_object_id     IAU_NAME SPEC  Z")
             print(
-                f"Transient with host swapped into input: https://alerce.online/object/{primer_dict['host_ztf_id']} {primer_dict['host_tns_name']} {primer_dict['host_tns_cls']} {primer_dict['host_tns_z']}\n"
+                hdr_fmt.format(
+                    "INPUT:",
+                    primer_dict["lc_ztf_id"],
+                    primer_dict["lc_tns_name"],
+                    primer_dict["lc_tns_cls"],
+                    f"{primer_dict['lc_tns_z']:.3f}",
+                )
             )
+        else:   # theorized LC
+            print(
+                hdr_fmt.format(
+                    "INPUT:",
+                    "[model]",
+                    primer_dict["lc_tns_name"],
+                    primer_dict["lc_tns_cls"],
+                    f"{primer_dict['lc_tns_z']:.3f}",
+                )
+            )
+
+        # optional swapped host line
+        if primer_dict["host_ztf_id"] is not None:
+            print(
+                hdr_fmt.format(
+                    "HOST:",
+                    primer_dict["host_ztf_id"],
+                    primer_dict["host_tns_name"],
+                    primer_dict["host_tns_cls"],
+                    f"{primer_dict['host_tns_z']:.3f}",
+                )
+            )
+
+        print()  # blank line before the ANN table
+
 
         if plot:
             # Plot lightcurves
@@ -778,22 +746,32 @@ class ReLAISS:
         # Define ALeRCE links for each neighbor
         ann_alerce_links = [f"https://alerce.online/object/{ztf_id}" for ztf_id in neighbor_ztfids]
 
-        for al, iau_name, spec_cls, z, dist, neighbor_ztfid in zip(
-            ann_alerce_links, tns_ann_names, tns_ann_classes, tns_ann_zs, dists, neighbor_ztfids
-        ):
-            print(f"ANN={neighbor_num}: {al} {iau_name} {spec_cls}, {z}")
-            neighbor_dict = {
-                "input_ztf_id": primer_dict["lc_ztf_id"],
-                "neighbor_ztf_id": neighbor_ztfid,
+        print(f"{'ANN#':<4} {'ZTF ID':<13} {'IAU Name':<8} {'Spec':<10} {'z':>7} {'Dist':>6}  Link")
+
+        storage = []
+        for nn, (ztfid, link, dist, iau, cls, z) in enumerate(
+                zip(neighbor_ztfids,
+                    ann_alerce_links,
+                    dists,
+                    tns_ann_names,
+                    tns_ann_classes,
+                    tns_ann_zs),
+                1):
+
+            print(f"{nn:<4} {ztfid:<13} "
+                  f"{_fmt_txt(iau, 8)} {_fmt_txt(cls, 10)} "
+                  f"{_fmt_z(z)} {dist:6.3f}  {link}")
+
+            storage.append({
+                "input_ztf_id"            : primer_dict["lc_ztf_id"],
+                "neighbor_ztf_id"         : ztfid,
                 "input_swapped_host_ztf_id": primer_dict["host_ztf_id"],
-                "neighbor_num": neighbor_num,
-                "ztf_link": al,
-                "dist": dist,
-                "iau_name": iau_name,
-                "spec_cls": spec_cls,
-                "z": z,
-            }
-            storage.append(neighbor_dict)
-            neighbor_num += 1
+                "neighbor_num"            : nn,
+                "ztf_link"                : link,
+                "dist"                    : dist,
+                "iau_name"                : iau or "---",
+                "spec_cls"                : cls or "---",
+                "z"                       : z,
+            })
 
         return pd.DataFrame(storage)
