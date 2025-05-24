@@ -257,6 +257,6 @@ def get_timeseries_df(
     # Cache the processed DataFrame
     if not building_for_AD:
         print("Caching timeseries features...")
-    cache_dataframe(timeseries_df, cache_key)
+        cache_dataframe(timeseries_df, cache_key)
 
     return timeseries_df

@@ -30,6 +30,7 @@ from .utils import (
     load_cached_dataframe,
     cache_dataframe,
     get_cache_dir,
+    compress
 )
 
 REFERENCE_DIR = Path(__file__).with_suffix("").parent / "reference"
@@ -122,7 +123,9 @@ class ReLAISS:
         self._index: annoy.AnnoyIndex
         self._ids: np.ndarray
         self.use_pca: bool
+        self.built_for_AD: bool
         self.hydrated_bank: pd.DataFrame
+        self.random_seed: int
 
     def get_preprocessed_dataframe(self) -> pd.DataFrame:
         """Get the preprocessed dataframe with all features imputed and engineered.
@@ -152,6 +155,9 @@ class ReLAISS:
         use_pca: bool = False,
         num_pca_components: Optional[int] = None,
         force_recreation_of_index: bool = False,
+        building_for_AD: bool = False,
+        random_seed: int = 42,
+        num_trees: int = 1000,
     ) -> None:
         """Load the shipped 20‑k reference bank and build (or load) its ANNOY index.
 
@@ -173,12 +179,6 @@ class ReLAISS:
             Whether to force recreation of the index.
         """
         from . import constants as _c
-        from .utils import (
-            compute_dataframe_hash,
-            get_cache_key,
-            load_cached_dataframe,
-            cache_dataframe,
-        )
 
         # Download SFD files if they don't exist
         download_sfd_files(path_to_sfd_folder)
@@ -195,22 +195,22 @@ class ReLAISS:
 
         raw_df_bank = pd.read_csv(bank_path, low_memory=False)
 
-        # Generate cache key for preprocessed data
-        cache_params = {
-            'bank_hash': compute_dataframe_hash(raw_df_bank),
-            'path_to_sfd_folder': str(path_to_sfd_folder),
-            'lc_features': lc_features,
-            'host_features': host_features,
-            'weight_lc': weight_lc,
-            'use_pca': use_pca,
-            'num_pca_components': num_pca_components,
-        }
-        cache_key = get_cache_key('reference_bank', **cache_params)
-
         # Try to load preprocessed data from cache
-        hydrated_bank = load_cached_dataframe(cache_key)
+        cache_params_bank = {
+            'bank_hash'        : compute_dataframe_hash(raw_df_bank),
+            'path_to_sfd'      : str(path_to_sfd_folder),
+            'lc_features'      : compress(lc_features),
+            'host_features'    : compress(host_features),
+            'weight_lc'        : weight_lc,
+            'use_pca'          : use_pca,
+            'num_pca_components': num_pca_components,
+            'building_for_AD'  : building_for_AD,
+        }
+        cache_key_bank = get_cache_key('reference_bank', **cache_params_bank)
+
+        hydrated_bank = load_cached_dataframe(cache_key_bank)
         if hydrated_bank is None:
-            print("Preprocessing reference bank (this may take a while)...")
+            print("Preprocessing reference bank...")
 
             # Rename ZTFID to ztf_object_id if it exists
             if 'ZTFID' in raw_df_bank.columns:
@@ -219,33 +219,44 @@ class ReLAISS:
             hydrated_bank = build_dataset_bank(
                 raw_df_bank,
                 building_entire_df_bank=True,
-                path_to_sfd_folder=path_to_sfd_folder
+                path_to_sfd_folder=path_to_sfd_folder,
+                building_for_AD=building_for_AD,
             )
+
+            if 'ZTFID' in hydrated_bank.columns:
+                hydrated_bank = hydrated_bank.rename(columns={'ZTFID': 'ztf_object_id'})
+            elif 'ztf_object_id' not in hydrated_bank.columns:
+                print("Warning: Could not find 'ztf_object_id' in columns. Some queries may fail.")
 
             # Cache the preprocessed data
             print("Caching preprocessed reference bank...")
-            cache_dataframe(hydrated_bank, cache_key)
+            cache_dataframe(hydrated_bank, cache_key_bank)
         else:
             print("Loading preprocessed reference bank from cache...")
 
         # Store the hydrated bank as an attribute
         self.hydrated_bank = hydrated_bank
+        self.built_for_AD = building_for_AD
 
-        # Generate cache key for index files
-        index_cache_params = {
-            **cache_params,
-            'hydrated_hash': compute_dataframe_hash(hydrated_bank),
-            'num_trees': 1000,  # Fixed parameter from build_indexed_sample
-        }
-        index_cache_key = get_cache_key('reference_index', **index_cache_params)
         index_dir = Path(get_cache_dir()) / 'indices'
         index_dir.mkdir(exist_ok=True)
+
+        index_params = {
+            **cache_params_bank,
+            'hydrated_hash': compute_dataframe_hash(hydrated_bank),
+            'num_trees'    : num_trees,          # fixed in your code
+        }
+        index_cache_key = get_cache_key('reference_index', **index_params)
         index_stem = index_dir / index_cache_key
 
         # Check if index files exist
         index_files_exist = all(
-            (index_stem.parent / f"{index_stem.name}{ext}").exists()
-            for ext in [".ann", "_idx_arr.npy", "_scaler.joblib"]
+            path.exists()
+            for path in (
+                index_stem.with_suffix('.ann'),
+                index_stem.parent / (index_stem.name + '_idx_arr.npy'),
+                index_stem.parent / (index_stem.name + '_scaler.joblib'),
+            )
         )
 
         if not index_files_exist:
@@ -256,10 +267,11 @@ class ReLAISS:
                 host_features=host_features,
                 use_pca=use_pca,
                 num_pca_components=num_pca_components,
-                num_trees=1000,
+                num_trees=num_trees,
                 path_to_index_directory=str(index_dir),
                 weight_lc_feats_factor=weight_lc,
-                force_recreation_of_index=force_recreation_of_index
+                force_recreation_of_index=force_recreation_of_index,
+                random_seed=random_seed
             )
         else:
             print("Loading existing search index...")
@@ -269,6 +281,9 @@ class ReLAISS:
         pca = None
         if use_pca:
             print("Using PCA...")
+            feat_arr_scaled = np.load(
+                str(index_stem) + ("_feat_arr_scaled_pca.npy" )
+            )
             pca_path = str(index_stem) + "_pca.joblib"
             if os.path.exists(pca_path):
                 print(f"Loading saved PCA model from {pca_path}")
@@ -289,63 +304,16 @@ class ReLAISS:
         self.host_features = host_features
         self.feat_arr_scaled = feat_arr_scaled
         self.bank_csv = bank_path
+        self.weight_lc = weight_lc
+        self.random_seed = random_seed
 
         dim = pca.n_components_ if pca else len(lc_features + host_features)
-        print(f"\nInitializing ANNOY index with dimension {dim}")
         # Use Manhattan distance to match reference implementation
         self._index = annoy.AnnoyIndex(dim, metric="manhattan")
-        print(f"Loading index from {str(self.index_stem)}.ann")
+        print("Index:",self.index_stem)
         self._index.load(str(self.index_stem) + ".ann")
         print(f"Loaded index with {self._index.get_n_items()} items")
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
-        print(f"Loaded {len(self._ids)} IDs")
-
-    def _handle_host_error(self, e, ztf_object_id, host_ztf_id):
-        """Handle errors when processing a host galaxy.
-
-        This method is called when an error occurs while trying to use a host galaxy
-        in the find_neighbors method. It attempts to retry the operation without using
-        the host galaxy.
-
-        Parameters
-        ----------
-        e : Exception
-            The exception that occurred during host processing
-        ztf_object_id : str
-            ZTF ID of the source transient
-        host_ztf_id : str
-            ZTF ID of the host galaxy that caused the error
-
-        Returns
-        -------
-        Result of find_neighbors without the host galaxy
-        """
-        print(f"Error during host processing: {str(e)}")
-        if host_ztf_id is not None:
-            print(f"Trying again without host galaxy {host_ztf_id}...")
-            # Fall back to using just the source transient without host
-            try:
-                from .search import primer
-                primer_dict = primer(
-                    lc_ztf_id=ztf_object_id,
-                    theorized_lightcurve_df=None,
-                    host_ztf_id=None,  # Remove host
-                    dataset_bank_path=self.bank_csv,
-                    path_to_timeseries_folder='./',
-                    path_to_sfd_folder=self.path_to_sfd_folder,
-                    lc_features=self.lc_features,
-                    host_features=self.host_features,
-                    num_sims=0,
-                    save_timeseries=False,
-                    preprocessed_df=self.hydrated_bank,
-                )
-                print("Successfully processed without host galaxy.")
-                return "Success"
-            except Exception as e2:
-                print(f"Failed to process even without host galaxy: {str(e2)}")
-                raise ValueError(f"Could not process transient: {str(e)}")
-        else:
-            raise ValueError(f"Error processing transient: {str(e)}")
 
     def find_neighbors(
         self,
@@ -353,13 +321,10 @@ class ReLAISS:
         theorized_lightcurve_df=None,
         host_ztf_id=None,
         path_to_dataset_bank: str | Path | None = None,
-        use_pca=False,
-        num_pca_components=20,
         n=8,
         suggest_neighbor_num=False,
         max_neighbor_dist=None,
-        search_k=1000,
-        weight_lc_feats_factor=1.0,
+        search_k=5000,
         num_sims=0,
         plot=False,
         save_figures=False,
@@ -392,7 +357,7 @@ class ReLAISS:
             If True, plots the distance elbow and exits early.
         max_neighbor_dist : float | None, default None
             Optional maximum L1 distance for neighbors.
-        search_k : int, default 1000
+        search_k : int, default 5000
             ANNOY search_k parameter for controlling search accuracy.
         weight_lc_feats_factor : float, default 1.0
             Factor to up-weight lightcurve features relative to host features.
@@ -472,6 +437,9 @@ class ReLAISS:
         start_time = time.time()
         index_file = str(annoy_index_file_stem) + ".ann"
 
+        #if 'ztf_object_id' in self.hydrated_bank.columns:
+        #    self.hydrated_bank = self.hydrated_bank.set_index('ztf_object_id')
+
         if n is None or n <= 0:
             raise ValueError("Neighbor number must be a nonzero integer. Abort!")
         else:
@@ -487,75 +455,75 @@ class ReLAISS:
         )
 
         # Find neighbors for every Monte Carlo feature array
-        if use_pca:
+        if self.use_pca:
             print(
-                f"Loading previously saved ANNOY PCA={num_pca_components} index:",
+                f"Loading previously saved ANNOY PCA={self.pca.n_components_} index:",
                 index_file,
                 "\n",
             )
+
+            bank_feat_arr_scaled = np.load(str(self.index_stem) + "_feat_arr_scaled_pca.npy", allow_pickle=True)
+
         else:
             print("Loading previously saved ANNOY index without PCA:", index_file, "\n")
 
-        # Scale the feature array
-        bank_feat_arr = np.load(
-            str(self.index_stem) + "_feat_arr.npy",
-            allow_pickle=True,
-        )
-        # Use the saved scaler instead of creating a new one
-        bank_feat_arr_scaled = self.scaler.transform(bank_feat_arr)
+            # Scale the feature array
+            bank_feat_arr = np.load(
+                str(self.index_stem) + "_feat_arr.npy",
+                allow_pickle=True,
+            )
+
+            bank_feat_arr_scaled = self.scaler.transform(bank_feat_arr)
 
         # Process all feature arrays (true + MC)
         true_and_mc_feat_arrs_l = [primer_dict["locus_feat_arr"]] + primer_dict["locus_feat_arrs_mc_l"]
+
         neighbor_dist_dict = {}
 
         for i, locus_feat_arr in enumerate(true_and_mc_feat_arrs_l):
-            # Always scale the vector, regardless of its source
-            # This ensures it matches the scale of the vectors in the index
-            if not self.use_pca:
-                # Upweight lightcurve features before scaling
-                n_lc = len(self.lc_features)
-                locus_feat_arr = locus_feat_arr.copy()  # Make a copy to avoid modifying original
-                # Only upweight if we have light curve features
-                try:
-                    # Check if all values are NaN, but only if they're numerical
-                    if not np.all(np.isnan(locus_feat_arr[:n_lc])):
-                        locus_feat_arr[:n_lc] *= weight_lc_feats_factor
-                except (TypeError, ValueError):
-                    # If we can't check for NaN (non-numerical values), try to upweight anyway
-                    # This will fail gracefully if the values can't be multiplied
-                    try:
-                        locus_feat_arr[:n_lc] *= weight_lc_feats_factor
-                    except:
-                        print("Warning: Could not apply light curve weighting to non-numerical features")
-
-            # Handle different dimensions properly
-            if isinstance(locus_feat_arr, np.ndarray) and locus_feat_arr.ndim > 1:
-                # If already 2D, just pass to scaler directly
-                print(f"Processing 2D array with shape {locus_feat_arr.shape}")
-                if locus_feat_arr.shape[0] == 1:
-                    # If it's a single row, use it directly
-                    scaled = self.scaler.transform(locus_feat_arr)[0]
-                else:
-                    # Otherwise, take the first row
-                    scaled = self.scaler.transform(locus_feat_arr[0:1])[0]
-            else:
-                # If 1D, wrap in list to make 2D for scaler
-                scaled = self.scaler.transform([locus_feat_arr])[0]
+            scaled = self.scaler.transform([locus_feat_arr])  # shape (1, N)
 
             if self.use_pca:
-                # Transform the scaled locus_feat_arr using the same PCA model
-                random_seed = 88
-                pca = PCA(n_components=self.pca.n_components_, random_state=random_seed)
+                scaled = self.pca.transform(scaled)  # shape (1, 5)
+                scaled_vector = scaled[0]            # shape (5,)
+            else:
+                scaled_vector = scaled[0]
+            if np.abs(self.weight_lc - 1.0) > 0.1:
+                if self.use_pca:
+                    raise ValueError("Error! Cannot weight light curve features when PCA=True.")
+                else:
+                    if i==0:
+                        print(f"Upweighting light curve features by a factor of {self.weight_lc:.1f}.")
+                    scaled *= self.weight_lc
 
-                # pca needs to be fit first to the same data as trained
-                trained_PCA_feat_arr_scaled_pca = pca.fit_transform(bank_feat_arr_scaled)
-                scaled = pca.transform([scaled])[0]
+            if self.use_pca:
+                # Step 1: check the PCA dimension
+                print(f"PCA components expected: {self.pca.n_components_}")
+                print(f"PCA query shape: {scaled_vector.shape}")  # Should be (5,)
+
+            # Step 2: check the index dimension
+            print(f"ANNOY index dimension: {self._index.f}")  # Must match PCA components
+
+            # Step 3: check the entire bank shape and its index
+            print(f"Index feature matrix shape: {self.feat_arr_scaled.shape}")
+            print(f"Number of items in Annoy index: {self._index.get_n_items()}")
+            print(f"Length of self._ids: {len(self._ids)}")
 
             # Get neighbors for this feature array
             # Make sure to request enough neighbors (n+1) since we might need to remove the query object
+            print("Stats for scaled vector:")
+            from scipy import stats
+            print(stats.describe(scaled_vector))
+            print("Stats for reference databank:")
+            print(stats.describe(self.feat_arr_scaled))
+            print(np.any(np.isnan(scaled_vector)))
+            print(np.any(~np.isfinite(scaled_vector)))
+
             idxs, dists = self._index.get_nns_by_vector(
-                scaled, n=n+10, search_k=search_k, include_distances=True
+                scaled_vector, n=n+100, search_k=search_k, include_distances=True
             )
+
+            print(f"Annoy actually returned {len(idxs)} ids, unique = {len(set(idxs))}")
 
             # Store neighbors and distances in dictionary
             for idx, dist in zip(idxs, dists):
@@ -566,8 +534,9 @@ class ReLAISS:
 
         # Pick n neighbors with lowest median distance
         if len(primer_dict["locus_feat_arrs_mc_l"]) != 0:
-            print(f"\nNumber of unique neighbors found through Monte Carlo: {len(neighbor_dist_dict)}.")
+            print(f"\nNumber of unique neighbors found through monte carlo: {len(neighbor_dist_dict)}.")
             print(f"Picking top {n} neighbors.")
+
         medians = {idx: np.median(dists) for idx, dists in neighbor_dist_dict.items()}
         sorted_neighbors = sorted(medians.items(), key=lambda item: item[1])
         top_n_neighbors = sorted_neighbors[:n+1]
@@ -580,6 +549,7 @@ class ReLAISS:
             if self._ids[idx] == primer_dict["lc_ztf_id"]:
                 input_idx = i
                 break
+
         if input_idx is not None:
             print(f"\nFound input transient at index {input_idx}, removing it...")
             del idxs[input_idx]
@@ -733,15 +703,11 @@ class ReLAISS:
             # Get preprocessed dataframe for host data
             if hasattr(self, 'hydrated_bank'):
                 df_bank = self.hydrated_bank.copy()
-                if 'ZTFID' in df_bank.columns:
-                    df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
-                df_bank = df_bank.set_index('ztf_object_id')
             else:
                 # Fallback to reading from CSV if hydrated_bank not available
                 df_bank = pd.read_csv(dataset_bank, low_memory=False)
-                if 'ZTFID' in df_bank.columns:
-                    df_bank = df_bank.rename(columns={'ZTFID': 'ztf_object_id'})
-                df_bank = df_bank.set_index('ztf_object_id')
+
+            df_bank.set_index('ztf_object_id', drop=False, inplace=True)
 
             hosts_to_plot = neighbor_ztfids.copy()
             host_ra_l, host_dec_l = [], []

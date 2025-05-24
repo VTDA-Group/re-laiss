@@ -27,146 +27,8 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 central_wv = {"g": 4849.11, "r": 6201.20, "i": 7534.96, "z": 8674.20}
 
-def old_build_dataset_bank(
-    raw_df_bank,
-    av_in_raw_df_bank=False,
-    path_to_sfd_folder=None,
-    theorized=False,
-    path_to_dataset_bank=None,
-    building_entire_df_bank=False,
-    building_for_AD=False,
-):
-
-    raw_lc_features = constants.lc_features_const.copy()
-    raw_host_features = constants.raw_host_features_const.copy()
-
-    if av_in_raw_df_bank:
-        if "A_V" not in raw_host_features:
-            raw_host_features.append("A_V")
-    else:
-        for col in ["ra", "dec"]:
-            if col not in raw_host_features:
-                raw_host_features.insert(0, col)
-
-    # if "ztf_object_id" is the index, move it to the first column
-    if raw_df_bank.index.name == "ztf_object_id":
-        raw_df_bank = raw_df_bank.reset_index()
-
-    if theorized:
-        raw_features = raw_lc_features
-        raw_feats_no_ztf = raw_lc_features
-    else:
-        raw_features = ["ztf_object_id"] + raw_lc_features + raw_host_features
-        raw_feats_no_ztf = raw_lc_features + raw_host_features
-
-    # Check to make sure all required features are in the raw data
-    missing_cols = [col for col in raw_features if col not in raw_df_bank.columns]
-    if missing_cols:
-        print(
-            f"KeyError: The following columns for this transient are not in the raw data: {missing_cols}. Abort!"
-        )
-        return
-
-    # Impute missing features
-    test_dataset_bank = raw_df_bank.replace([np.inf, -np.inf, -999], np.nan).dropna(
-        subset=raw_features
-    )
-
-    nan_cols = [
-        col
-        for col in raw_features
-        if raw_df_bank[col].replace([np.inf, -np.inf, -999], np.nan).isna().all()
-    ]
-
-    if not building_for_AD:
-        print(
-            f"There are {len(raw_df_bank) - len(test_dataset_bank)} of {len(raw_df_bank)} rows in the dataframe with 1 or more NA features."
-        )
-        if len(nan_cols) != 0:
-            print(
-                f"The following {len(nan_cols)} feature(s) are NaN for all measurements: {nan_cols}."
-            )
-        print("Imputing features (if necessary)...")
-
-    wip_dataset_bank = raw_df_bank
-
-    if building_entire_df_bank:
-        X = raw_df_bank[raw_feats_no_ztf]
-
-        feat_imputer = KNNImputer(weights="distance").fit(X)
-        imputed_filt_arr = feat_imputer.transform(X)
-    else:
-        true_raw_df_bank = pd.read_csv(path_to_dataset_bank)
-        X = true_raw_df_bank[raw_feats_no_ztf]
-
-        if building_for_AD:
-            # Use mean imputation
-            feat_imputer = SimpleImputer(strategy="mean").fit(X)
-        else:
-            # Use KNN imputation
-            feat_imputer = KNNImputer(weights="distance").fit(X)
-
-        imputed_filt_arr = feat_imputer.transform(wip_dataset_bank[raw_feats_no_ztf])
-
-    imputed_filt_df = pd.DataFrame(imputed_filt_arr, columns=raw_feats_no_ztf)
-    imputed_filt_df.index = raw_df_bank.index
-
-    wip_dataset_bank[raw_feats_no_ztf] = imputed_filt_df
-
-    wip_dataset_bank = wip_dataset_bank.replace([np.inf, -np.inf, -999], np.nan).dropna(
-        subset=raw_features
-    )
-
-    if not building_for_AD:
-        if not wip_dataset_bank.empty:
-            print("Successfully imputed features.")
-        else:
-            print("Failed to impute features.")
-
-    # Engineer the remaining features
-    if not theorized:
-        if not building_for_AD:
-            print("Engineering remaining features...")
-        # Correct host magnitude features for dust
-        m = sfdmap.SFDMap(path_to_sfd_folder)
-
-        MW_RV = 3.1
-        ext = G23(Rv=MW_RV)
-        MW_EBV = m.ebv(wip_dataset_bank["ra"].to_numpy(), wip_dataset_bank["dec"].to_numpy())
-        AV = MW_RV * MW_EBV
-
-        for band in ["g", "r", "i", "z"]:
-            mags = wip_dataset_bank[f"{band}KronMag"].to_numpy()
-            A_filter = -2.5 * np.log10(
-                ext.extinguish(central_wv[band]*u.AA, Av=AV)
-            )
-            wip_dataset_bank[f"{band}KronMagCorrected"] = mags - A_filter
-
-        # Create color features
-        wip_dataset_bank["gminusrKronMag"] = (
-            wip_dataset_bank["gKronMag"] - wip_dataset_bank["rKronMag"]
-        )
-        wip_dataset_bank["rminusiKronMag"] = (
-            wip_dataset_bank["rKronMag"] - wip_dataset_bank["iKronMag"]
-        )
-        wip_dataset_bank["iminuszKronMag"] = (
-            wip_dataset_bank["iKronMag"] - wip_dataset_bank["zKronMag"]
-        )
-
-        # Calculate color uncertainties
-        wip_dataset_bank["gminusrKronMagErr"] = np.sqrt(
-            wip_dataset_bank["gKronMagErr"] ** 2 + wip_dataset_bank["rKronMagErr"] ** 2
-        )
-        wip_dataset_bank["rminusiKronMagErr"] = np.sqrt(
-            wip_dataset_bank["rKronMagErr"] ** 2 + wip_dataset_bank["iKronMagErr"] ** 2
-        )
-        wip_dataset_bank["iminuszKronMagErr"] = np.sqrt(
-            wip_dataset_bank["iKronMagErr"] ** 2 + wip_dataset_bank["zKronMagErr"] ** 2
-        )
-
-    final_df_bank = wip_dataset_bank
-
-    return final_df_bank
+def sanitize_features(df):
+    return df.replace([np.inf, -np.inf, -999, 999], np.nan)
 
 def build_dataset_bank(
     raw_df_bank,
@@ -203,7 +65,7 @@ def build_dataset_bank(
         Use simpler mean imputation and suppress verbose prints for
         anomaly-detection pipelines.
     preprocessed_df : pandas.DataFrame | None, default None
-        Pre-processed dataframe with imputed features. If provided, this is returned 
+        Pre-processed dataframe with imputed features. If provided, this is returned
         directly instead of processing raw_df_bank.
 
     Returns
@@ -216,7 +78,7 @@ def build_dataset_bank(
         if not building_for_AD:
             print("Using provided preprocessed dataframe instead of processing raw data")
         return preprocessed_df
-        
+
     # Generate cache key based on input parameters
     df_hash = compute_dataframe_hash(raw_df_bank)
     cache_key = get_cache_key(
@@ -234,6 +96,8 @@ def build_dataset_bank(
     if cached_df is not None:
         if not building_for_AD:
             print("Loading preprocessed features from cache...")
+        else:
+            print("LOADING CACHED DATAFRAME!")
         return cached_df
 
     if not building_for_AD:
@@ -278,7 +142,7 @@ def build_dataset_bank(
     nan_cols = [
         col
         for col in raw_features
-        if raw_df_bank[col].replace([np.inf, -np.inf, -999], np.nan).isna().all()
+        if raw_df_bank[col].replace([np.inf, -np.inf, -999, 999], np.nan).isna().all()
     ]
 
     if not building_for_AD:
@@ -289,27 +153,29 @@ def build_dataset_bank(
             print(
                 f"The following {len(nan_cols)} feature(s) are NaN for all measurements: {nan_cols}."
             )
-        print("Imputing features (if necessary)...")
+        print("Imputing features...")
 
-    wip_dataset_bank = raw_df_bank
+    wip_dataset_bank = raw_df_bank.copy()
+    if "mjd_cutoff" in raw_df_bank.columns:
+        mjd_col = raw_df_bank["mjd_cutoff"]
+    else:
+        mjd_col = None
 
     if building_entire_df_bank:
-        X = raw_df_bank[raw_feats_no_ztf]
-
-        feat_imputer = KNNImputer(weights="distance").fit(X)
-        imputed_filt_arr = feat_imputer.transform(X)
+        X_input = sanitize_features(raw_df_bank[raw_feats_no_ztf])
+        feat_imputer = KNNImputer(weights="distance").fit(X_input)
+        imputed_filt_arr = feat_imputer.transform(X_input)
     else:
         true_raw_df_bank = pd.read_csv(path_to_dataset_bank, low_memory=False)
-        X = true_raw_df_bank[raw_feats_no_ztf]
+        X_input = sanitize_features(true_raw_df_bank[raw_feats_no_ztf])
 
         if building_for_AD:
-            # Use mean imputation
-            feat_imputer = SimpleImputer(strategy="mean").fit(X)
+            feat_imputer = SimpleImputer(strategy="mean").fit(X_input)
         else:
-            # Use KNN imputation
-            feat_imputer = KNNImputer(weights="distance").fit(X)
+            feat_imputer = KNNImputer(weights="distance").fit(X_input)
 
-        imputed_filt_arr = feat_imputer.transform(wip_dataset_bank[raw_feats_no_ztf])
+        X_transform = sanitize_features(wip_dataset_bank[raw_feats_no_ztf])
+        imputed_filt_arr = feat_imputer.transform(X_transform)
 
     imputed_filt_df = pd.DataFrame(imputed_filt_arr, columns=raw_feats_no_ztf)
     imputed_filt_df.index = raw_df_bank.index
@@ -319,6 +185,13 @@ def build_dataset_bank(
     wip_dataset_bank = wip_dataset_bank.replace([np.inf, -np.inf, -999], np.nan).dropna(
         subset=raw_features
     )
+
+    if mjd_col is not None:
+        print("Before reattaching mjd_cutoff: ", mjd_col.shape, wip_dataset_bank.shape)
+        wip_dataset_bank = wip_dataset_bank.assign(
+            mjd_cutoff=mjd_col.reindex(wip_dataset_bank.index)
+        )
+        print("Attached mjd_cutoff — now columns:", wip_dataset_bank.columns)
 
     if not building_for_AD:
         if not wip_dataset_bank.empty:
@@ -372,6 +245,11 @@ def build_dataset_bank(
     # Cache the processed DataFrame
     if not building_for_AD:
         print("Caching preprocessed features...")
+
+    if "mjd_cutoff" in final_df_bank:
+        print("Stored mjd_cutoff in raw_df_bank successfully before returning!!!")
+    #    final_df_bank['mjd_cutoff'] = raw_df_bank['mjd_cutoff'].values
+
     cache_dataframe(final_df_bank, cache_key)
 
     return final_df_bank
@@ -462,7 +340,7 @@ def extract_lc_and_host_features(
     swapped_host : bool, default False
         Indicator used when re-running with an alternate host galaxy.
     preprocessed_df : pandas.DataFrame | None, default None
-        Pre-processed dataframe with imputed features. If provided, this is used 
+        Pre-processed dataframe with imputed features. If provided, this is used
         instead of loading and processing the raw dataset bank.
 
     Returns
@@ -537,13 +415,13 @@ def extract_lc_and_host_features(
     lc_timeseries_feat_df = pd.DataFrame(
         columns=["ztf_object_id"] + ["obs_num"] + ["mjd_cutoff"] + lc_col_names
     )
-    
+
     # Keep track of cumulative peak magnitudes and times
     g_peak_mag_cumulative = float('inf')
     r_peak_mag_cumulative = float('inf')
     g_peak_time_cumulative = None
     r_peak_time_cumulative = None
-    
+
     for i in range(min_obs_count, len(lightcurve) + 1):
         lightcurve_subset = lightcurve.iloc[:i]
         time_mjd = lightcurve_subset["ant_mjd"].iloc[-1]
@@ -573,26 +451,26 @@ def extract_lc_and_host_features(
             engineered_lc_properties_df = extractor.extract_features(
                 return_uncertainty=True
             )
-            
+
             # Update cumulative peak magnitudes and times
             if engineered_lc_properties_df is not None:
                 current_g_peak = engineered_lc_properties_df['g_peak_mag'].iloc[0]
                 current_r_peak = engineered_lc_properties_df['r_peak_mag'].iloc[0]
-                
+
                 if current_g_peak < g_peak_mag_cumulative:
                     g_peak_mag_cumulative = current_g_peak
                     g_peak_time_cumulative = engineered_lc_properties_df['g_peak_time'].iloc[0]
-                    
+
                 if current_r_peak < r_peak_mag_cumulative:
                     r_peak_mag_cumulative = current_r_peak
                     r_peak_time_cumulative = engineered_lc_properties_df['r_peak_time'].iloc[0]
-                
+
                 # Update the dataframe with cumulative values
                 engineered_lc_properties_df['g_peak_mag'] = g_peak_mag_cumulative
                 engineered_lc_properties_df['r_peak_mag'] = r_peak_mag_cumulative
                 engineered_lc_properties_df['g_peak_time'] = g_peak_time_cumulative
                 engineered_lc_properties_df['r_peak_time'] = r_peak_time_cumulative
-                
+
         except:
             continue
 
@@ -729,13 +607,13 @@ def extract_lc_and_host_features(
             print(f"Creating path {df_path}.")
             os.makedirs(df_path)
 
-        # Lightcurve ra and dec may be needed in feature engineering
         lc_and_hosts_df["ra"] = ra
         lc_and_hosts_df["dec"] = dec
 
     # Engineer additonal features in build_dataset_bank function
     if building_for_AD:
         print("Engineering features...")
+
     lc_and_hosts_df_hydrated = build_dataset_bank(
         raw_df_bank=(
             lc_and_hosts_df
@@ -749,8 +627,6 @@ def extract_lc_and_host_features(
         building_for_AD=building_for_AD,
         preprocessed_df=preprocessed_df,
     )
-    if building_for_AD:
-        print("Finished engineering features.\n")
 
     if store_csv and not lc_and_hosts_df_hydrated.empty:
         os.makedirs(df_path, exist_ok=True)
@@ -908,7 +784,7 @@ class SupernovaFeatureExtractor:
             Identifier used in warnings and output tables.
         ra, dec : float | None, optional
             ICRS coordinates (deg) for dust-extinction correction.
-        
+
         Raises
         ------
         ValueError
@@ -917,14 +793,14 @@ class SupernovaFeatureExtractor:
         # Input validation
         if len(time_g) == 0 and len(time_r) == 0:
             raise ValueError("Both g and r bands are empty")
-            
+
         # Check that each band's arrays have the same length
         if len(time_g) != len(mag_g) or len(time_g) != len(err_g):
             raise ValueError(f"G band arrays have different lengths: time={len(time_g)}, mag={len(mag_g)}, err={len(err_g)}")
-            
+
         if len(time_r) != len(mag_r) or len(time_r) != len(err_r):
             raise ValueError(f"R band arrays have different lengths: time={len(time_r)}, mag={len(mag_r)}, err={len(err_r)}")
-            
+
         if ztf_object_id:
             self.ztf_object_id = ztf_object_id
         else:
@@ -939,7 +815,7 @@ class SupernovaFeatureExtractor:
             "mag": np.array(mag_r),
             "err": np.array(err_r),
         }
-        
+
         # Handle t0 calculation for empty bands
         if len(self.g["time"]) > 0 and len(self.r["time"]) > 0:
             t0 = min(self.g["time"].min(), self.r["time"].min())
@@ -949,15 +825,15 @@ class SupernovaFeatureExtractor:
             t0 = self.r["time"].min()
         else:
             t0 = 0  # Both empty (should have been caught earlier)
-            
+
         self.time_offset = t0
-        
+
         # Apply time offset
         if len(self.g["time"]) > 0:
             self.g["time"] -= t0
         if len(self.r["time"]) > 0:
             self.r["time"] -= t0
-            
+
         # Apply extinction correction if coordinates provided
         if ra is not None and dec is not None:
             ebv = m.ebv(ra, dec)
@@ -1090,6 +966,7 @@ class SupernovaFeatureExtractor:
         peak_idx = np.argmin(m)
         peak_mag = m[peak_idx]
         peak_time = t[peak_idx]
+        last_time = np.nanmax(t)
         flux = 10 ** (-0.4 * m)
         half_flux = 0.5 * 10 ** (-0.4 * peak_mag)
         half_mag = -2.5 * np.log10(half_flux)
@@ -1104,7 +981,7 @@ class SupernovaFeatureExtractor:
             decline_time = np.nan
         above_half = t[m < half_mag]
         duration = above_half[-1] - above_half[0] if len(above_half) > 1 else np.nan
-        return peak_mag, peak_time, rise_time, decline_time, duration
+        return peak_mag, peak_time, rise_time, decline_time, duration, last_time
 
     def _variability_stats(self, band):
         """Amplitude, skewness, and 2-σ outlier rate of a magnitude series.

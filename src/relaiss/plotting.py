@@ -123,7 +123,8 @@ def plot_lightcurves(
                 "Lightcurve plotter only plots up to 8 neighbors. Stopping at neighbor 8."
             )
             break
-        try:
+        #try:
+        if True:
             alpha = 0.25
             c1 = "darkred"
             c2 = "darkgreen"
@@ -143,7 +144,7 @@ def plot_lightcurves(
                 fmt=markers[num],
                 c=c1,
                 alpha=alpha,
-                label=f"ANN={num+1}:{ztfname}, d={round(dist, 2)},\n{iau_name}, {spec_cls}, z={round(z, 3)}",
+                label=f"ANN={num+1}:{ztfname}, d={round(dist, 2)},\n{iau_name}, {spec_cls}, z={z}",
             )
             ax.errorbar(
                 x=df_g.ant_mjd - df_g.ant_mjd.iloc[mjd_idx_at_min_mag_g],
@@ -201,8 +202,8 @@ def plot_lightcurves(
             box = ax.get_position()
             ax.set_position([box.x0, box.y0, box.width, box.height * scale])
 
-        except Exception:
-            print(f"Something went wrong with plotting {ztfname}! Excluding from plot.")
+        #except Exception:
+        #    print(f"Something went wrong with plotting {ztfname}! Excluding from plot.")
 
     if save_figures:
         os.makedirs(figure_path, exist_ok=True)
@@ -230,11 +231,11 @@ def plot_hosts(
     prefer_color=True,
 ):
     """Create 3×3 PS1 thumbnail grids for candidate host galaxies.
-    
+
     This function creates a multi-page PDF containing PS1 thumbnail images of host
     galaxies for a set of transients. Each page contains a 3x3 grid of images, with
     the reference transient's host in the top-left position.
-    
+
     Parameters
     ----------
     ztfid_ref : str
@@ -258,11 +259,11 @@ def plot_hosts(
         Whether to use a shallower stretch (93%) for grayscale images.
     prefer_color : bool, default True
         Whether to prefer RGB images over grayscale.
-        
+
     Returns
     -------
     None
-        
+
     Notes
     -----
     The output PDF will be saved as:
@@ -296,6 +297,7 @@ def plot_hosts(
                 continue
 
             row = df.iloc[idx]
+
             ztfid, ra, dec = (
                 str(row["ztf_object_id"]),
                 float(row["HOST_RA"]),
@@ -354,11 +356,11 @@ def corner_plot(
     preprocessed_df=None,  # Added parameter for preprocessed dataframe
 ):
     """Create corner plots comparing feature distributions between neighbors and the full dataset.
-    
+
     This function creates corner plots that visualize the distribution of features
     for the nearest neighbors compared to the full dataset. The input transient's
     features are marked in green, neighbors in red, and the full dataset in blue.
-    
+
     Parameters
     ----------
     neighbors_df : pandas.DataFrame
@@ -374,18 +376,18 @@ def corner_plot(
     save_plots : bool, default True
         Whether to save the plots to disk.
     preprocessed_df : pandas.DataFrame | None, default None
-        Optional preprocessed dataframe with imputed features to use instead of loading 
+        Optional preprocessed dataframe with imputed features to use instead of loading
         the raw dataset. This ensures no NaN values which could cause issues.
-        
+
     Returns
     -------
     None
-        
+
     Raises
     ------
     ValueError
         If primer_dict or neighbors_df is None.
-        
+
     Notes
     -----
     The corner plots are saved as PNG files in:
@@ -425,7 +427,7 @@ def corner_plot(
         dataset_bank_df = pd.read_csv(path_to_dataset_bank, low_memory=False)
         if 'ZTFID' in dataset_bank_df.columns:
             dataset_bank_df = dataset_bank_df.rename(columns={'ZTFID': 'ztf_object_id'})
-            
+
     dataset_bank_df = dataset_bank_df[
         ["ztf_object_id"] + lc_feature_names + host_feature_names
     ]

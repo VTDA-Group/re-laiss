@@ -28,11 +28,11 @@ def primer(
     preprocessed_df=None,
 ):
     """Assemble input feature vectors (and MC replicas) for a query object.
-    
+
     This function combines lightcurve and host galaxy features to create a feature vector
     for similarity search. It can optionally swap in a different host galaxy and generate
     Monte Carlo replicas for uncertainty propagation.
-    
+
     Parameters
     ----------
     lc_ztf_id : str | None
@@ -57,9 +57,9 @@ def primer(
     num_sims : int, default 0
         Number of Monte Carlo perturbations for uncertainty propagation.
     preprocessed_df : pandas.DataFrame | None, default None
-        Pre-processed dataframe with imputed features. If provided, this is used 
+        Pre-processed dataframe with imputed features. If provided, this is used
         instead of loading and processing the raw dataset bank.
-        
+
     Returns
     -------
     dict
@@ -78,7 +78,7 @@ def primer(
         - lc_galaxy_ra/dec: Input transient host coordinates
         - lc_feat_names: List of lightcurve feature names
         - host_feat_names: List of host feature names
-        
+
     Raises
     ------
     ValueError
@@ -151,26 +151,8 @@ def primer(
             if ztf_id not in df_bank.index:
                 print(f"{ztf_id} is not in dataset_bank.")
                 raise KeyError(f"ZTF ID {ztf_id} not found in dataset bank")
-                
-            # Extract the feature array - this data is ALREADY in the right format for the index
-            locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
-            
-            # Convert to numeric array if needed
-            if not isinstance(locus_feat_arr, np.ndarray):
-                try:
-                    locus_feat_arr = locus_feat_arr.astype(float)
-                except (ValueError, TypeError):
-                    print(f"Warning: Could not convert feature array to numeric type for {ztf_id}")
-                    locus_feat_arr = np.zeros(len(feature_names))
 
-            # Handle NaN values
-            if isinstance(locus_feat_arr, np.ndarray) and np.issubdtype(locus_feat_arr.dtype, np.number):
-                if np.isnan(locus_feat_arr).any():
-                    print(f"Warning: Found NaN values in feature array for {ztf_id}. Replacing with 0.")
-                    locus_feat_arr = np.nan_to_num(locus_feat_arr, 0)
-            else:
-                print(f"Warning: Feature array for {ztf_id} contains non-numeric values")
-                locus_feat_arr = np.zeros(len(feature_names))
+            locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
 
             print(f"{ztf_id} is in dataset_bank.")
             ztf_id_in_dataset_bank = True
@@ -220,7 +202,7 @@ def primer(
             # Extract timeseries dataframe
             if ztf_id is not None:
                 print(f"Attempting to fetch timeseries data for {ztf_id}...")
-            
+
             timeseries_df = get_timeseries_df(
                 ztf_id=ztf_id,
                 theorized_lightcurve_df=(
@@ -326,11 +308,11 @@ def primer(
                 lc_locus_feat_arr = pd.Series(lc_locus_feat_arr, index=feature_names)
             if not isinstance(host_locus_feat_arr, pd.Series):
                 host_locus_feat_arr = pd.Series(host_locus_feat_arr, index=feature_names)
-                
+
             subset_lc = lc_locus_feat_arr[lc_features]
             subset_host = host_locus_feat_arr[host_features]
             locus_feat_series = pd.concat([subset_lc, subset_host])
-            
+
             # Make sure features are in the right order
             locus_feat_series = locus_feat_series.reindex(feature_names)
         else:
@@ -340,7 +322,7 @@ def primer(
             else:
                 # If it's already a numpy array, create a Series with the right index
                 subset_lc = pd.Series(lc_locus_feat_arr, index=lc_features)
-                
+
             if isinstance(host_locus_feat_arr, pd.Series):
                 subset_host = host_locus_feat_arr[host_features]
             else:
@@ -357,15 +339,15 @@ def primer(
                         # If we can't determine the correct slicing, log warning and use placeholder values
                         print(f"Warning: Host feature array length ({len(host_locus_feat_arr)}) doesn't match host_features length ({len(host_features)}). Using placeholder values.")
                         host_locus_feat_arr = np.full(len(host_features), np.nan)
-                
+
                 subset_host = pd.Series(host_locus_feat_arr, index=host_features)
-                
+
             # If light curve features are empty, fill with NaN
             if subset_lc.empty:
                 subset_lc = pd.Series(index=lc_features, data=np.nan)
-                
+
             locus_feat_series = pd.concat([subset_lc, subset_host])
-            
+
             # Make sure features are in the right order
             locus_feat_series = locus_feat_series.reindex(feature_names)
 
@@ -391,12 +373,12 @@ def primer(
                 # Skip if error column doesn't exist in the dataframe
                 if error_name not in locus_feat_df_for_mc.columns:
                     continue
-                
+
                 std = locus_feat_df_for_mc[error_name]
                 # Skip if std is NaN
                 if std.isna().any():
                     continue
-                
+
                 noise = np.random.normal(0, std)
                 if not np.isnan(noise):
                     locus_feat_df_for_mc[feat_name] = (
@@ -416,7 +398,7 @@ def primer(
 
     # Make sure locus_feat_arr is a 1D array with the features in the right order
     if lc_ztf_id_in_dataset_bank and host_ztf_id is None:
-        # When using data directly from the dataset bank without host swapping, 
+        # When using data directly from the dataset bank without host swapping,
         # just use the array directly to avoid any transformations
         if isinstance(locus_feat_arr, np.ndarray):
             # It's already a numpy array in the right format

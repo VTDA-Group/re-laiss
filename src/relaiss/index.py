@@ -19,13 +19,14 @@ def build_indexed_sample(
     save=True,
     force_recreation_of_index=True,
     weight_lc_feats_factor=1.0,
+    random_seed=42
 ):
     """Create (or load) an ANNOY index over a reference feature bank.
-    
+
     This function builds or loads an ANNOY index for fast similarity search over a dataset
     of astronomical transients. It can optionally apply PCA for dimensionality reduction
     and weight lightcurve features more heavily than host features.
-    
+
     Parameters
     ----------
     data_bank : pandas.DataFrame
@@ -50,7 +51,7 @@ def build_indexed_sample(
     weight_lc_feats_factor : float, default 1.0
         Factor to up-weight lightcurve features relative to host features.
         Ignored if use_pca=True.
-        
+
     Returns
     -------
     tuple
@@ -58,14 +59,14 @@ def build_indexed_sample(
         - index_stem_name_with_path: Path to index files (without extension)
         - scaler: Fitted StandardScaler instance
         - feat_arr_scaled: Scaled feature array
-        
+
     Raises
     ------
     ValueError
         If no features are provided
         If required columns are missing from data_bank
         If data contains NaN or infinite values after scaling
-        
+
     Notes
     -----
     The function saves several files:
@@ -91,6 +92,7 @@ def build_indexed_sample(
     # Ensure proper user input of features
     num_lc_features   = len(lc_features)
     num_host_features = len(host_features)
+
     if num_lc_features + num_host_features == 0:
         raise ValueError("Error: must provide at least one lightcurve or host feature.")
     if num_lc_features == 0:
@@ -104,31 +106,24 @@ def build_indexed_sample(
 
     # Filtering dataset bank for provided features
     data_bank = data_bank[lc_features + host_features]
-    data_bank = data_bank.dropna()
-    
+
     # Scale dataset bank features
+
     feat_arr = np.array(data_bank)
-    idx_arr = np.array(data_bank.index)
+    idx_arr = np.array(data_bank.index) # Use index from cleaned data
+
     scaler = preprocessing.StandardScaler()
     scaler = scaler.fit(feat_arr)
     feat_arr_scaled = scaler.transform(feat_arr)
-    
+
     if not use_pca:
         # Upweight lightcurve features
-        num_lc_feats = len(lc_features)
-        feat_arr_scaled[:, :num_lc_feats] *= weight_lc_feats_factor
+        feat_arr_scaled[:, :num_lc_features] *= weight_lc_feats_factor
         # Save the weighted feature array
         weighted_feat_arr = feat_arr_scaled.copy()
-
-    if use_pca:
-        if weight_lc_feats_factor != 1.0:
-            print(
-                "Ignoring weighted lightcurve feature factor. Not compatible with PCA."
-            )
-        random_seed = 88
+    else:
         pcaModel = PCA(n_components=num_pca_components, random_state=random_seed)
         feat_arr_scaled_pca = pcaModel.fit_transform(feat_arr_scaled)
-        print(f"Explained variance ratio with PCA: {pcaModel.explained_variance_ratio_}")
 
     # Save PCA and non-PCA index arrays to binary files
     os.makedirs(path_to_index_directory, exist_ok=True)
@@ -136,13 +131,16 @@ def build_indexed_sample(
         f"re_laiss_annoy_index_pca{use_pca}"
         + (f"_{num_pca_components}comps" if use_pca else "")
         + f"_{num_lc_features}lc_{num_host_features}host"
+        + f"_{int(weight_lc_feats_factor)}weight"
     )
     index_stem_name_with_path = path_to_index_directory + "/" + index_stem_name
     if save:
         np.save(f"{index_stem_name_with_path}_idx_arr.npy", idx_arr)
         np.save(f"{index_stem_name_with_path}_feat_arr.npy", feat_arr)
+
         # Save the scaler
         joblib.dump(scaler, f"{index_stem_name_with_path}_scaler.joblib")
+
         if use_pca:
             np.save(
                 f"{index_stem_name_with_path}_feat_arr_scaled_pca.npy",
@@ -150,6 +148,10 @@ def build_indexed_sample(
             )
             # Save the PCA model
             joblib.dump(pcaModel, f"{index_stem_name_with_path}_pca.joblib")
+
+            print("First 5 PCA feature rows:")
+            print(feat_arr_scaled_pca[:5])
+
         else:
             np.save(
                 f"{index_stem_name_with_path}_feat_arr_scaled.npy",
@@ -191,4 +193,8 @@ def build_indexed_sample(
 
     print("Done!\n")
 
-    return index_stem_name_with_path, scaler, feat_arr_scaled
+    return (
+        index_stem_name_with_path,
+        scaler,
+        feat_arr_scaled_pca if use_pca else feat_arr_scaled
+    )

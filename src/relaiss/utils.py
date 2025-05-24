@@ -7,7 +7,11 @@ import hashlib
 import pickle
 from pathlib import Path
 import pandas as pd
+import hashlib, json
 
+def compress(obj) -> str:
+    """Return a short hash of any JSON-serialisable object."""
+    return hashlib.md5(json.dumps(obj, sort_keys=True).encode()).hexdigest()
 
 @contextmanager
 def suppress_output():
