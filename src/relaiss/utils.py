@@ -9,14 +9,15 @@ from pathlib import Path
 import pandas as pd
 import hashlib, json
 import math
+from typing import Optional
 
-def _fmt_z(val: float | None) -> str:
+def _fmt_z(val: Optional[float]) -> str:
     """Right-aligned z column; '---' if missing."""
     if val is None or (isinstance(val, (float, int)) and math.isnan(val)):
         return "---"
     return f"{val:7.3f}"
 
-def _fmt_txt(text: str | None, width: int) -> str:
+def _fmt_txt(text: Optional[str], width: int) -> str:
     """Text column with fallback ‘---’."""
     return (text or "---").ljust(width)[:width]
 
