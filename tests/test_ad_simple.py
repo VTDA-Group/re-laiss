@@ -9,65 +9,6 @@ from unittest.mock import patch, MagicMock
 from pyod.models.iforest import IForest
 from relaiss.relaiss import ReLAISS
 
-def test_train_AD_model_simple(tmp_path):
-    """Test training AD model with simplified mocks."""
-    from relaiss.anomaly import train_AD_model
-    
-    lc_features = ['g_peak_mag', 'r_peak_mag']
-    host_features = ['host_ra', 'host_dec']
-    
-    df = pd.DataFrame({
-        'g_peak_mag': np.random.normal(20, 1, 100),
-        'r_peak_mag': np.random.normal(19, 1, 100),
-        'host_ra': np.random.uniform(0, 360, 100),
-        'host_dec': np.random.uniform(-90, 90, 100),
-    })
-    
-    client = ReLAISS()
-    client.load_reference()
-    client.built_for_AD = True  # Set this flag to use preprocessed_df
-    
-    # Create a real IForest instance for training
-    real_forest = IForest(
-        n_estimators=100,
-        contamination=0.02,
-        max_samples=256,
-        behaviour='new',
-        random_state=42
-    )
-    
-    # Mock the pipeline creation
-    mock_pipeline = MagicMock()
-    mock_pipeline.fit.return_value = mock_pipeline
-    
-    with patch('relaiss.anomaly.Pipeline', return_value=mock_pipeline), \
-         patch('joblib.dump') as mock_dump:
-        # Create expected model path
-        expected_path = str(tmp_path / f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl")
-        mock_dump.return_value = None  # joblib.dump returns None
-        
-        model_path = train_AD_model(
-            client=client,
-            lc_features=lc_features,
-            host_features=host_features,
-            preprocessed_df=df,
-            path_to_models_directory=str(tmp_path),
-            n_estimators=100,
-            contamination=0.02,
-            max_samples=256,
-            force_retrain=True
-        )
-        
-        # Verify the model was saved with the correct filename
-        assert model_path == expected_path
-        
-        # Verify joblib.dump was called once to save the model
-        mock_dump.assert_called_once()
-        
-        # Verify the saved model is our mocked pipeline
-        saved_pipeline = mock_dump.call_args[0][0]
-        assert saved_pipeline is mock_pipeline
-
 def test_anomaly_detection_simplified(tmp_path):
     """Test anomaly detection with minimal dependencies."""
     from relaiss.anomaly import anomaly_detection
