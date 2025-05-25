@@ -109,19 +109,11 @@ def test_train_AD_model_with_preprocessed_df(tmp_path, sample_preprocessed_df):
         # Verify build_dataset_bank was not called
         mock_build_dataset.assert_not_called()
         
-        # Only consider the last two calls for this test
-        relevant_calls = mock_dump.call_args_list[-2:]
-        
-        # First relevant call should be to save the scaler
-        first_call_args = relevant_calls[0][0]
-        assert 'StandardScaler' in str(type(first_call_args[0]))
-        assert first_call_args[1].endswith('scaler.joblib')
-        assert str(tmp_path) in first_call_args[1]
-        
-        # Second relevant call should be to save the pipeline
-        second_call_args = relevant_calls[1][0]
-        assert 'Pipeline' in str(type(second_call_args[0]))
-        assert second_call_args[1] == model_path
+        # Only the last call should be to save the pipeline/model
+        last_call_args = mock_dump.call_args_list[-1][0]
+        assert 'Pipeline' in str(type(last_call_args[0]))
+        assert last_call_args[1] == model_path
+        assert str(tmp_path) in last_call_args[1]
         
         # Check that model_path includes feature counts in the filename
         num_lc_features = len(lc_features)
@@ -218,21 +210,16 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
         # Verify the model path is correct
         assert model_path == expected_model_path
         
-        # Verify joblib.dump was called twice - once for scaler and once for pipeline
-        assert mock_dump.call_count == 2
+        # Verify joblib.dump was called once (only for the pipeline/model)
+        assert mock_dump.call_count == 1
         
-        # First call should be to save the scaler
-        first_call_args = mock_dump.call_args_list[0][0]
-        assert 'StandardScaler' in str(type(first_call_args[0]))
-        assert first_call_args[1].endswith('scaler.joblib')
-        
-        # Second call should be to save the pipeline
-        second_call_args = mock_dump.call_args_list[1][0]
-        assert 'Pipeline' in str(type(second_call_args[0]))
-        assert second_call_args[1] == model_path
+        # The call should be to save the pipeline
+        call_args = mock_dump.call_args_list[0][0]
+        assert 'Pipeline' in str(type(call_args[0]))
+        assert call_args[1] == model_path
         
         # Verify the pipeline has the correct parameters
-        pipeline = second_call_args[0]
+        pipeline = call_args[0]
         iforest = pipeline.named_steps['clf']
         assert iforest.n_estimators == 100
         assert iforest.contamination == 0.02

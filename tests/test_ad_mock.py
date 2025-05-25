@@ -68,18 +68,13 @@ def test_train_AD_model_simple(tmp_path):
         expected_filename = f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl"
         assert model_path.endswith(expected_filename)
         
-        # Verify joblib.dump was called twice - once for scaler and once for pipeline
-        assert mock_dump.call_count == 2
+        # Verify joblib.dump was called once (only for the pipeline/model)
+        assert mock_dump.call_count == 1
         
-        # First call should be to save the scaler
-        first_call_args = mock_dump.call_args_list[0][0]
-        assert first_call_args[0] is mock_scaler
-        assert first_call_args[1].endswith('scaler.joblib')
-        
-        # Second call should be to save the pipeline
-        second_call_args = mock_dump.call_args_list[1][0]
-        assert second_call_args[0] is mock_pipeline
-        assert second_call_args[1] == model_path
+        # The call should be to save the pipeline
+        call_args = mock_dump.call_args_list[0][0]
+        assert call_args[0] is mock_pipeline
+        assert call_args[1] == model_path
         
         # Verify the pipeline has the correct parameters
         iforest = mock_pipeline.named_steps['clf']
