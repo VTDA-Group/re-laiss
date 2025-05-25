@@ -185,11 +185,9 @@ def build_dataset_bank(
     )
 
     if mjd_col is not None:
-        print("Before reattaching mjd_cutoff: ", mjd_col.shape, wip_dataset_bank.shape)
         wip_dataset_bank = wip_dataset_bank.assign(
             mjd_cutoff=mjd_col.reindex(wip_dataset_bank.index)
         )
-        print("Attached mjd_cutoff — now columns:", wip_dataset_bank.columns)
 
     if not building_for_AD:
         if not wip_dataset_bank.empty:
@@ -243,10 +241,6 @@ def build_dataset_bank(
     # Cache the processed DataFrame
     if not building_for_AD:
         print("Caching preprocessed features...")
-
-    if "mjd_cutoff" in final_df_bank:
-        print("Stored mjd_cutoff in raw_df_bank successfully before returning!!!")
-    #    final_df_bank['mjd_cutoff'] = raw_df_bank['mjd_cutoff'].values
 
     cache_dataframe(final_df_bank, cache_key)
 
