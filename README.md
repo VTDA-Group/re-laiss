@@ -24,12 +24,13 @@ client = rl.ReLAISS()
 # load reference data
 client.load_reference(
     path_to_sfd_folder='./sfddata-master',  # Directory for SFD dust maps
+    weight_lc=3, # Upweight lightcurve features for neighbor search
 )
 
 # Find the 5 closest matches to a ZTF transient
 neigh = client.find_neighbors(
         ztf_object_id='ZTF21abbzjeq',  # Using the test transient
-        n=40,  # number of neighbors to retrieve
+        n=5,  # number of neighbors to retrieve
         plot=True, # plot and save figures
         save_figures=True,
         path_to_figure_directory='./figures'
