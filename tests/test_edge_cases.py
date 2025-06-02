@@ -78,18 +78,22 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir, tmp_
         # Missing ant_mjd column
     })
     
-    # Create proper mock model data instead of using MagicMock
+    # Create proper mock model data with new optimized format
     from sklearn.preprocessing import StandardScaler
+    from sklearn.neighbors import NearestNeighbors
     mock_scaler = StandardScaler()
     mock_training_data = np.random.random((10, 4))  # 10 samples, 4 features
     mock_scaler.fit(mock_training_data)
+    mock_sample_scaled = mock_scaler.transform(mock_training_data[:5])
+    mock_sample_nbrs = NearestNeighbors(n_neighbors=5)
+    mock_sample_nbrs.fit(mock_sample_scaled)
     
     mock_model_data = {
         'scaler': mock_scaler,
-        'training_sample': mock_training_data[:5],  # Sample of training data
+        'training_sample_scaled': mock_sample_scaled,  # Pre-scaled sample
+        'sample_nbrs': mock_sample_nbrs,  # Pre-fitted k-NN model
         'train_knn_distances': np.random.random(10) * 2,  # Random distances
         'feature_names': lc_features + host_features,
-        'training_size': 10,
         'training_k': 5
     }
     
@@ -378,18 +382,22 @@ def test_mjd_alignment():
         'obs_num': [1]
     })
     
-    # Create proper mock model data instead of using MagicMock
+    # Create proper mock model data with new optimized format
     from sklearn.preprocessing import StandardScaler
+    from sklearn.neighbors import NearestNeighbors
     mock_scaler = StandardScaler()
     mock_training_data = np.random.random((10, 4))  # 10 samples, 4 features
     mock_scaler.fit(mock_training_data)
+    mock_sample_scaled = mock_scaler.transform(mock_training_data[:5])
+    mock_sample_nbrs = NearestNeighbors(n_neighbors=5)
+    mock_sample_nbrs.fit(mock_sample_scaled)
     
     mock_model_data = {
         'scaler': mock_scaler,
-        'training_sample': mock_training_data[:5],  # Sample of training data
+        'training_sample_scaled': mock_sample_scaled,  # Pre-scaled sample
+        'sample_nbrs': mock_sample_nbrs,  # Pre-fitted k-NN model
         'train_knn_distances': np.random.random(10) * 2,  # Random distances
         'feature_names': lc_features + host_features,
-        'training_size': 10,
         'training_k': 5
     }
     

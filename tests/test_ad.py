@@ -245,7 +245,8 @@ def test_train_AD_model_with_mocked_data(tmp_path, sample_preprocessed_df):
         assert isinstance(call_args[0], dict)
         assert 'scaler' in call_args[0]
         # Check for new optimized format
-        assert 'training_sample' in call_args[0]
+        assert 'training_sample_scaled' in call_args[0]
+        assert 'sample_nbrs' in call_args[0]
         assert 'train_knn_distances' in call_args[0]
         assert 'training_k' in call_args[0]
         assert call_args[1] == model_path

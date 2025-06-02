@@ -22,26 +22,26 @@ import relaiss as rl
 def sample_preprocessed_df():
     """Create a sample preprocessed dataframe for testing."""
     np.random.seed(42)
-    n_samples = 100
     
-    df = pd.DataFrame({
-        'g_peak_mag': np.random.normal(20, 1, n_samples),
-        'r_peak_mag': np.random.normal(19, 1, n_samples),
-        'g_peak_time': np.random.uniform(0, 100, n_samples),
-        'r_peak_time': np.random.uniform(0, 100, n_samples),
-        'host_ra': np.random.uniform(0, 360, n_samples),
-        'host_dec': np.random.uniform(-90, 90, n_samples),
-        'gKronMag': np.random.normal(21, 1, n_samples),
-        'rKronMag': np.random.normal(20, 1, n_samples),
-        'iKronMag': np.random.normal(19.5, 1, n_samples),
-        'zKronMag': np.random.normal(19, 1, n_samples),
-        'gminusrKronMag': np.random.normal(1, 0.2, n_samples),
-        'rminusiKronMag': np.random.normal(0.5, 0.2, n_samples),
-        'iminuszKronMag': np.random.normal(0.5, 0.2, n_samples),
-        'ztf_object_id': [f'ZTF{i:08d}' for i in range(n_samples)]  # Add ztf_object_id column
-    })
+    # Create realistic sample data with proper feature ranges
+    data = {
+        'g_peak_mag': np.random.normal(20, 2, 100),
+        'r_peak_mag': np.random.normal(19, 2, 100),
+        'g_peak_time': np.random.normal(50, 20, 100),
+        'r_peak_time': np.random.normal(55, 20, 100),
+        'host_ra': np.random.uniform(0, 360, 100),
+        'host_dec': np.random.uniform(-90, 90, 100),
+        'zKronMag': np.random.normal(18, 1, 100),
+        'wKronMag': np.random.normal(17, 1, 100),
+        'jKronMag': np.random.normal(16, 1, 100),
+        'hKronMag': np.random.normal(15, 1, 100),
+        'ymean': np.random.normal(19, 1, 100),
+        'zmean': np.random.normal(18, 1, 100),
+        'iminuszKronMag': np.random.normal(0.5, 0.5, 100),
+        'ztf_object_id': [f'ZTF{i:08d}' for i in range(100)]
+    }
     
-    return df
+    return pd.DataFrame(data)
 
 class TestPreprocessedDataframe:
     """Test suite for preprocessed dataframe functionality across the package."""
@@ -140,18 +140,22 @@ class TestPreprocessedDataframe:
         figure_dir.mkdir()
         (figure_dir / "AD").mkdir()
         
-        # Create proper mock model data instead of using MagicMock
+        # Create proper mock model data with new optimized format
         from sklearn.preprocessing import StandardScaler
+        from sklearn.neighbors import NearestNeighbors
         mock_scaler = StandardScaler()
         mock_training_data = np.random.random((10, 4))  # 10 samples, 4 features
         mock_scaler.fit(mock_training_data)
+        mock_sample_scaled = mock_scaler.transform(mock_training_data[:5])
+        mock_sample_nbrs = NearestNeighbors(n_neighbors=5)
+        mock_sample_nbrs.fit(mock_sample_scaled)
         
         mock_model_data = {
             'scaler': mock_scaler,
-            'training_sample': mock_training_data[:5],  # Sample of training data
+            'training_sample_scaled': mock_sample_scaled,  # Pre-scaled sample
+            'sample_nbrs': mock_sample_nbrs,  # Pre-fitted k-NN model
             'train_knn_distances': np.random.random(10) * 2,  # Random distances
             'feature_names': ['g_peak_mag', 'r_peak_mag', 'host_ra', 'host_dec'],
-            'training_size': 10,
             'training_k': 5
         }
         
@@ -243,18 +247,22 @@ class TestPreprocessedDataframe:
         client.preprocessed_df = sample_preprocessed_df
         assert client.preprocessed_df is sample_preprocessed_df
         
-        # Create proper mock model data instead of using MagicMock
+        # Create proper mock model data with new optimized format
         from sklearn.preprocessing import StandardScaler
+        from sklearn.neighbors import NearestNeighbors
         mock_scaler = StandardScaler()
         mock_training_data = np.random.random((10, 4))  # 10 samples, 4 features
         mock_scaler.fit(mock_training_data)
+        mock_sample_scaled = mock_scaler.transform(mock_training_data[:5])
+        mock_sample_nbrs = NearestNeighbors(n_neighbors=5)
+        mock_sample_nbrs.fit(mock_sample_scaled)
         
         mock_model_data = {
             'scaler': mock_scaler,
-            'training_sample': mock_training_data[:5],  # Sample of training data
+            'training_sample_scaled': mock_sample_scaled,  # Pre-scaled sample
+            'sample_nbrs': mock_sample_nbrs,  # Pre-fitted k-NN model
             'train_knn_distances': np.random.random(10) * 2,  # Random distances
             'feature_names': ['g_peak_mag', 'r_peak_mag', 'host_ra', 'host_dec'],
-            'training_size': 10,
             'training_k': 5
         }
         
