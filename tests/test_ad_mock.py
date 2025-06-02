@@ -7,7 +7,7 @@ import pickle
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from relaiss.anomaly import train_AD_model
-from pyod.models.iforest import IForest
+from sklearn.preprocessing import StandardScaler
 import relaiss as relaiss
 
 def test_train_AD_model_simple(tmp_path):
@@ -29,24 +29,11 @@ def test_train_AD_model_simple(tmp_path):
     client.built_for_AD = True  # Set this flag to use preprocessed_df
 
     # Create a mock scaler
-    mock_scaler = MagicMock()
-    mock_scaler.fit_transform.return_value = np.random.rand(100, 4)  # Return some dummy transformed data
+    mock_scaler = StandardScaler()
+    X = np.random.rand(100, 4)
+    mock_scaler.fit(X)
     
-    # Create a mock pipeline with all required attributes
-    mock_pipeline = MagicMock()
-    mock_pipeline.named_steps = {
-        'scaler': mock_scaler,
-        'clf': MagicMock(
-            n_estimators=100,
-            contamination=0.02,
-            max_samples=256
-        )
-    }
-    mock_pipeline.fit.return_value = mock_pipeline
-    
-    with patch('relaiss.anomaly.Pipeline', return_value=mock_pipeline) as mock_pipeline_class, \
-         patch('relaiss.anomaly.StandardScaler', return_value=mock_scaler) as mock_scaler_class, \
-         patch('joblib.dump') as mock_dump:
+    with patch('joblib.dump') as mock_dump:
         # Make mock_dump create empty files
         def side_effect(model, path, *args, **kwargs):
             Path(path).touch()
@@ -58,29 +45,21 @@ def test_train_AD_model_simple(tmp_path):
             host_features=host_features,
             preprocessed_df=df,
             path_to_models_directory=str(tmp_path),
-            n_estimators=100,
-            contamination=0.02,
-            max_samples=256,
             force_retrain=True
         )
         
         # Verify the model was saved with the correct filename
-        expected_filename = f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl"
+        expected_filename = f"kNN_scaler_lc=2_host=2.pkl"
         assert model_path.endswith(expected_filename)
         
-        # Verify joblib.dump was called once (only for the pipeline/model)
+        # Verify joblib.dump was called once (only for the model data)
         assert mock_dump.call_count == 1
         
-        # The call should be to save the pipeline
+        # The call should be to save the model data dict
         call_args = mock_dump.call_args_list[0][0]
-        assert call_args[0] is mock_pipeline
+        assert isinstance(call_args[0], dict)
+        assert 'scaler' in call_args[0]
         assert call_args[1] == model_path
-        
-        # Verify the pipeline has the correct parameters
-        iforest = mock_pipeline.named_steps['clf']
-        assert iforest.n_estimators == 100
-        assert iforest.contamination == 0.02
-        assert iforest.max_samples == 256
 
 def test_anomaly_detection_simplified(tmp_path):
     """Test anomaly detection with minimal dependencies."""
@@ -93,17 +72,23 @@ def test_anomaly_detection_simplified(tmp_path):
     figure_dir.mkdir(exist_ok=True)
     (figure_dir / "AD").mkdir(exist_ok=True)
     
-    # Create a real IForest that can be pickled
-    real_forest = IForest(n_estimators=10, random_state=42)
+    # Create model data with scaler and training features
+    scaler = StandardScaler()
     X = np.random.rand(20, 4)  # Some dummy data
-    real_forest.fit(X)  # Fit the model so it can be used
+    scaler.fit(X)  # Fit the scaler
     
     # Create a dummy model file with actual content
-    model_path = model_dir / "IForest_n=100_c=0.02_m=256.pkl"  # Use actual filename format
+    model_path = model_dir / "kNN_scaler_lc=2_host=2.pkl"  # Use actual filename format
     
-    # Write the real forest to the file
+    model_data = {
+        'scaler': scaler,
+        'training_features': X,
+        'feature_names': ['g_peak_mag', 'r_peak_mag', 'host_ra', 'host_dec']
+    }
+    
+    # Write the model data to the file
     with open(model_path, 'wb') as f:
-        pickle.dump(real_forest, f)
+        pickle.dump(model_data, f)
     
     # Features to test with - should match the dimensions used to create X above
     lc_features = ['g_peak_mag', 'r_peak_mag']

@@ -212,7 +212,10 @@ def primer(
             continue                                   # skip dataframe-based path
         # ------------------------------------------------------------------
 
-        locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
+        try:
+            locus_feat_arr = df_bank.loc[ztf_id][feature_names].values
+        except KeyError:
+            raise ValueError(f"ZTF ID '{ztf_id}' not found in dataset bank")
 
         ztf_id_in_dataset_bank = True
 

@@ -15,31 +15,64 @@ def sample_preprocessed_df():
     np.random.seed(42)
     n_samples = 1000
     
-    # Create sample data with all required columns
+    # Create sample data with all required columns from constants.py
     df = pd.DataFrame({
+        # Core LC features
         'g_peak_mag': np.random.normal(20, 1, n_samples),
         'r_peak_mag': np.random.normal(19, 1, n_samples),
         'g_peak_time': np.random.uniform(0, 100, n_samples),
         'r_peak_time': np.random.uniform(0, 100, n_samples),
         'g_rise_time': np.random.uniform(10, 20, n_samples),
         'g_decline_time': np.random.uniform(20, 40, n_samples),
-        'g_duration_above_half_flux': np.random.uniform(30, 60, n_samples),
-        'r_duration_above_half_flux': np.random.uniform(30, 60, n_samples),
         'r_rise_time': np.random.uniform(10, 20, n_samples),
         'r_decline_time': np.random.uniform(20, 40, n_samples),
+        'g_duration_above_half_flux': np.random.uniform(30, 60, n_samples),
+        'r_duration_above_half_flux': np.random.uniform(30, 60, n_samples),
+        
+        # Amplitude and variability
+        'g_amplitude': np.random.uniform(1, 5, n_samples),
+        'r_amplitude': np.random.uniform(1, 5, n_samples),
+        'g_skewness': np.random.uniform(-2, 2, n_samples),
+        'r_skewness': np.random.uniform(-2, 2, n_samples),
+        'g_beyond_2sigma': np.random.uniform(0, 1, n_samples),
+        'r_beyond_2sigma': np.random.uniform(0, 1, n_samples),
+        
+        # Color features
         'mean_g-r': np.random.uniform(0.1, 1.0, n_samples),
         'g-r_at_g_peak': np.random.uniform(0.1, 1.0, n_samples),
         'mean_color_rate': np.random.uniform(-0.05, 0.05, n_samples),
+        
+        # Peak structure features
+        'g_n_peaks': np.random.randint(1, 5, n_samples),
+        'r_n_peaks': np.random.randint(1, 5, n_samples),
+        'g_dt_main_to_secondary_peak': np.random.uniform(0, 50, n_samples),
+        'r_dt_main_to_secondary_peak': np.random.uniform(0, 50, n_samples),
+        'g_dmag_secondary_peak': np.random.uniform(0.1, 2, n_samples),
+        'r_dmag_secondary_peak': np.random.uniform(0.1, 2, n_samples),
+        'g_secondary_peak_prominence': np.random.uniform(0.1, 1, n_samples),
+        'r_secondary_peak_prominence': np.random.uniform(0.1, 1, n_samples),
+        'g_secondary_peak_width': np.random.uniform(1, 10, n_samples),
+        'r_secondary_peak_width': np.random.uniform(1, 10, n_samples),
+        
+        # Rolling variance features
+        'g_max_rolling_variance': np.random.uniform(0.001, 0.2, n_samples),
+        'r_max_rolling_variance': np.random.uniform(0.001, 0.2, n_samples),
         'g_mean_rolling_variance': np.random.uniform(0.001, 0.1, n_samples),
         'r_mean_rolling_variance': np.random.uniform(0.001, 0.1, n_samples),
+        
+        # Local curvature features
         'g_rise_local_curvature': np.random.uniform(-0.1, 0.1, n_samples),
         'g_decline_local_curvature': np.random.uniform(-0.1, 0.1, n_samples),
         'r_rise_local_curvature': np.random.uniform(-0.1, 0.1, n_samples),
         'r_decline_local_curvature': np.random.uniform(-0.1, 0.1, n_samples),
+        
+        # Host position
         'host_ra': np.random.uniform(0, 360, n_samples),
         'host_dec': np.random.uniform(-90, 90, n_samples),
         'ra': np.random.uniform(0, 360, n_samples),
         'dec': np.random.uniform(-90, 90, n_samples),
+        
+        # Raw host features
         'gKronMag': np.random.normal(21, 0.5, n_samples),
         'rKronMag': np.random.normal(20, 0.5, n_samples),
         'iKronMag': np.random.normal(19.5, 0.5, n_samples),
@@ -97,9 +130,6 @@ def test_train_AD_model_with_preprocessed_df(tmp_path, sample_preprocessed_df):
             preprocessed_df=sample_preprocessed_df,
             path_to_dataset_bank=str(dummy_bank_path),  # Add dummy path
             path_to_models_directory=str(tmp_path),
-            n_estimators=100,
-            contamination=0.02,
-            max_samples=256,
             force_retrain=True
         )
         
@@ -109,16 +139,16 @@ def test_train_AD_model_with_preprocessed_df(tmp_path, sample_preprocessed_df):
         # Verify build_dataset_bank was not called
         mock_build_dataset.assert_not_called()
         
-        # Only the last call should be to save the pipeline/model
+        # Only the last call should be to save the model data
         last_call_args = mock_dump.call_args_list[-1][0]
-        assert 'Pipeline' in str(type(last_call_args[0]))
+        assert 'scaler' in str(last_call_args[0]) or isinstance(last_call_args[0], dict)
         assert last_call_args[1] == model_path
         assert str(tmp_path) in last_call_args[1]
         
         # Check that model_path includes feature counts in the filename
         num_lc_features = len(lc_features)
         num_host_features = len(host_features)
-        expected_filename = f"IForest_n=100_c=0.02_m=256_lc={num_lc_features}_host={num_host_features}.pkl"
+        expected_filename = f"kNN_scaler_lc={num_lc_features}_host={num_host_features}.pkl"
         assert model_path.endswith(expected_filename)
 
 @pytest.mark.skip(reason="Requires real data in CI environment")
@@ -133,18 +163,16 @@ def test_train_AD_model_with_raw_data(tmp_path):
         host_features=client.host_features,
         path_to_dataset_bank=client.bank_csv,
         path_to_models_directory=str(tmp_path),
-        n_estimators=100,
-        contamination=0.02,
-        max_samples=256,
         force_retrain=True
     )
     
     assert os.path.exists(model_path)
-    model = joblib.load(model_path)
-    assert model.n_estimators == 100
+    model_data = joblib.load(model_path)
+    assert 'scaler' in model_data
+    assert 'training_features' in model_data
 
 # Updated test that doesn't require real data
-def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
+def test_train_AD_model_with_mocked_data(tmp_path, sample_preprocessed_df):
     """Test training AD model with a mock dataset bank."""
     # Create a mock dataset bank file
     mock_bank_path = tmp_path / "mock_dataset_bank.csv"
@@ -158,11 +186,7 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
     client.load_reference()
     client.built_for_AD = False  # Set this flag to use raw data path
     
-    # Get expected model path with feature counts included in the filename
-    num_lc_features = len(lc_features)
-    num_host_features = len(host_features)
-    expected_filename = f"IForest_n=100_c=0.02_m=256_lc={num_lc_features}_host={num_host_features}.pkl"
-    expected_model_path = str(tmp_path / expected_filename)
+    # This is overridden later in the test to use the correct kNN naming convention
     
     # Mock the ReLAISS client, build_dataset_bank, and SFDMap to avoid using real dust maps
     with patch('relaiss.relaiss.ReLAISS') as mock_client_class, \
@@ -201,29 +225,30 @@ def test_train_AD_model_with_raw_data(tmp_path, sample_preprocessed_df):
             path_to_dataset_bank=str(mock_bank_path),
             path_to_sfd_folder=str(tmp_path),  # Just use tmp_path as mock SFD folder
             path_to_models_directory=str(tmp_path),
-            n_estimators=100,
-            contamination=0.02,
-            max_samples=256,
             force_retrain=True
         )
+        
+        # Update expected path for new naming convention
+        num_lc_features = len(lc_features)
+        num_host_features = len(host_features)
+        expected_filename = f"kNN_scaler_lc={num_lc_features}_host={num_host_features}.pkl"
+        expected_model_path = str(tmp_path / expected_filename)
         
         # Verify the model path is correct
         assert model_path == expected_model_path
         
-        # Verify joblib.dump was called once (only for the pipeline/model)
+        # Verify joblib.dump was called once (only for the model data)
         assert mock_dump.call_count == 1
         
-        # The call should be to save the pipeline
+        # The call should be to save the model data dict
         call_args = mock_dump.call_args_list[0][0]
-        assert 'Pipeline' in str(type(call_args[0]))
+        assert isinstance(call_args[0], dict)
+        assert 'scaler' in call_args[0]
+        # Check for new optimized format
+        assert 'training_sample' in call_args[0]
+        assert 'train_knn_distances' in call_args[0]
+        assert 'training_k' in call_args[0]
         assert call_args[1] == model_path
-        
-        # Verify the pipeline has the correct parameters
-        pipeline = call_args[0]
-        iforest = pipeline.named_steps['clf']
-        assert iforest.n_estimators == 100
-        assert iforest.contamination == 0.02
-        assert iforest.max_samples == 256
 
 def test_train_AD_model_invalid_input():
     """Test error handling for invalid inputs."""
@@ -267,7 +292,7 @@ def test_anomaly_detection_basic(sample_preprocessed_df, tmp_path):
     client.load_reference()
     
     # Create a mock model path
-    model_path = model_dir / f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl"
+    model_path = model_dir / f"kNN_scaler_lc=2_host=2.pkl"
     
     # Create mock timeseries data
     mock_timeseries = pd.DataFrame({
@@ -357,7 +382,7 @@ def test_anomaly_detection_with_host_swap(sample_preprocessed_df, tmp_path):
     client.load_reference()
     
     # Create a mock model path
-    model_path = model_dir / f"IForest_n=100_c=0.02_m=256_lc=2_host=2.pkl"
+    model_path = model_dir / f"kNN_scaler_lc=2_host=2.pkl"
     
     # Create mock timeseries data
     mock_timeseries = pd.DataFrame({

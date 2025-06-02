@@ -13,30 +13,63 @@ from relaiss.features import (
 
 def test_build_dataset_bank(dataset_bank_path, sfd_dir, mock_extinction_all):
     """Test the build_dataset_bank function."""
-    # Create a much more complete sample dataset with all required columns
+    # Create a complete sample dataset with all required columns from constants.py
     raw_df = pd.DataFrame({
         'ztf_object_id': ['ZTF21abbzjeq'],
+        # Core LC features  
         'g_peak_mag': [20.0],
         'r_peak_mag': [19.5],
         'g_peak_time': [25.0],
+        'r_peak_time': [27.0],
         'g_rise_time': [15.0],
         'g_decline_time': [20.0],
-        'g_duration_above_half_flux': [40.0],
-        'r_duration_above_half_flux': [45.0],
-        'r_peak_time': [27.0],
         'r_rise_time': [18.0],
         'r_decline_time': [25.0],
+        'g_duration_above_half_flux': [40.0],
+        'r_duration_above_half_flux': [45.0],
+        
+        # Amplitude and variability
+        'g_amplitude': [2.5],
+        'r_amplitude': [2.0],
+        'g_skewness': [0.5],
+        'r_skewness': [0.3],
+        'g_beyond_2sigma': [0.1],
+        'r_beyond_2sigma': [0.15],
+        
+        # Color features
         'mean_g-r': [0.5],
         'g-r_at_g_peak': [0.45],
         'mean_color_rate': [0.01],
+        
+        # Peak structure features
+        'g_n_peaks': [1],
+        'r_n_peaks': [1], 
+        'g_dt_main_to_secondary_peak': [0.0],
+        'r_dt_main_to_secondary_peak': [0.0],
+        'g_dmag_secondary_peak': [0.0],
+        'r_dmag_secondary_peak': [0.0],
+        'g_secondary_peak_prominence': [0.0],
+        'r_secondary_peak_prominence': [0.0],
+        'g_secondary_peak_width': [0.0],
+        'r_secondary_peak_width': [0.0],
+        
+        # Rolling variance features
+        'g_max_rolling_variance': [0.08],
+        'r_max_rolling_variance': [0.06],
         'g_mean_rolling_variance': [0.05],
         'r_mean_rolling_variance': [0.04],
+        
+        # Local curvature features
         'g_rise_local_curvature': [0.02],
         'g_decline_local_curvature': [0.03],
         'r_rise_local_curvature': [0.02],
         'r_decline_local_curvature': [0.025],
+        
+        # Position
         'ra': [150.0],
         'dec': [20.0],
+        
+        # Raw host features
         'gKronMag': [21.0],
         'rKronMag': [20.5],
         'iKronMag': [20.0],

@@ -309,7 +309,6 @@ class ReLAISS:
         dim = pca.n_components_ if pca else len(lc_features + host_features)
         self._index = annoy.AnnoyIndex(dim, metric="manhattan")
         self._index.load(str(self.index_stem) + ".ann")
-        print(f"Loaded index with {self._index.get_n_items()} items")
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
 
     def find_neighbors(

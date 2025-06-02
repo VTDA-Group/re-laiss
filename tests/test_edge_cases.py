@@ -78,12 +78,27 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir, tmp_
         # Missing ant_mjd column
     })
     
+    # Create proper mock model data instead of using MagicMock
+    from sklearn.preprocessing import StandardScaler
+    mock_scaler = StandardScaler()
+    mock_training_data = np.random.random((10, 4))  # 10 samples, 4 features
+    mock_scaler.fit(mock_training_data)
+    
+    mock_model_data = {
+        'scaler': mock_scaler,
+        'training_sample': mock_training_data[:5],  # Sample of training data
+        'train_knn_distances': np.random.random(10) * 2,  # Random distances
+        'feature_names': lc_features + host_features,
+        'training_size': 10,
+        'training_k': 5
+    }
+    
     # Mock the needed components
     with patch('relaiss.fetch.get_timeseries_df') as mock_timeseries, \
          patch('relaiss.anomaly.get_timeseries_df') as mock_ad_timeseries, \
          patch('joblib.dump'), \
          patch('relaiss.anomaly.get_TNS_data', return_value=("TNS2023abc", "SN Ia", 0.1)), \
-         patch('joblib.load', return_value=MagicMock()), \
+         patch('joblib.load', return_value=mock_model_data), \
          patch('relaiss.anomaly.check_anom_and_plot', return_value=(np.array([58000.0]), np.array([0.5]), np.array([0.75]))), \
          patch('relaiss.features.build_dataset_bank', return_value=test_df):  # Mock build_dataset_bank
         
@@ -109,8 +124,6 @@ def test_missing_ant_mjd_column(dataset_bank_path, timeseries_dir, sfd_dir, tmp_
             host_features=host_features,
             preprocessed_df=test_df,
             path_to_models_directory=str(model_dir),
-            n_estimators=10,  # Small for quick test
-            max_samples=8,    # Small for quick test
             force_retrain=True
         )
         
@@ -365,12 +378,27 @@ def test_mjd_alignment():
         'obs_num': [1]
     })
     
+    # Create proper mock model data instead of using MagicMock
+    from sklearn.preprocessing import StandardScaler
+    mock_scaler = StandardScaler()
+    mock_training_data = np.random.random((10, 4))  # 10 samples, 4 features
+    mock_scaler.fit(mock_training_data)
+    
+    mock_model_data = {
+        'scaler': mock_scaler,
+        'training_sample': mock_training_data[:5],  # Sample of training data
+        'train_knn_distances': np.random.random(10) * 2,  # Random distances
+        'feature_names': lc_features + host_features,
+        'training_size': 10,
+        'training_k': 5
+    }
+    
     # Mock components
     with patch('relaiss.fetch.get_timeseries_df') as mock_timeseries, \
          patch('relaiss.anomaly.get_timeseries_df') as mock_ad_timeseries, \
          patch('joblib.dump'), \
          patch('relaiss.anomaly.get_TNS_data', return_value=("TNS2023abc", "SN Ia", 0.1)), \
-         patch('joblib.load', return_value=MagicMock()), \
+         patch('joblib.load', return_value=mock_model_data), \
          patch('relaiss.anomaly.check_anom_and_plot', return_value=(np.array([58000.0]), np.array([0.5]), np.array([0.75]))), \
          patch('relaiss.features.build_dataset_bank', return_value=test_df):  # Mock build_dataset_bank
         

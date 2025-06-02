@@ -162,7 +162,11 @@ def build_dataset_bank(
     if building_entire_df_bank:
         X_input = sanitize_features(raw_df_bank[raw_feats_no_ztf])
         feat_imputer = KNNImputer(weights="distance").fit(X_input)
-        imputed_filt_arr = feat_imputer.transform(X_input)
+        # Only impute if there are actually NaN values
+        if X_input.isna().any().any():
+            imputed_filt_arr = feat_imputer.transform(X_input)
+        else:
+            imputed_filt_arr = X_input.values
     else:
         true_raw_df_bank = pd.read_csv(path_to_dataset_bank, low_memory=False)
         X_input = sanitize_features(true_raw_df_bank[raw_feats_no_ztf])
@@ -173,7 +177,19 @@ def build_dataset_bank(
             feat_imputer = KNNImputer(weights="distance").fit(X_input)
 
         X_transform = sanitize_features(wip_dataset_bank[raw_feats_no_ztf])
-        imputed_filt_arr = feat_imputer.transform(X_transform)
+        
+        # FIXED: Only impute NaN values, preserve valid values
+        original_values = X_transform.copy()
+        nan_mask = X_transform.isna()
+        
+        if nan_mask.any().any():
+            # Only transform if there are NaN values to impute
+            imputed_filt_arr = feat_imputer.transform(X_transform)
+            # Restore original non-NaN values
+            imputed_filt_arr = np.where(nan_mask.values, imputed_filt_arr, original_values.values)
+        else:
+            # No NaN values, use original data
+            imputed_filt_arr = original_values.values
 
     imputed_filt_df = pd.DataFrame(imputed_filt_arr, columns=raw_feats_no_ztf)
     imputed_filt_df.index = raw_df_bank.index
@@ -408,11 +424,15 @@ def extract_lc_and_host_features(
         columns=["ztf_object_id"] + ["obs_num"] + ["mjd_cutoff"] + lc_col_names
     )
 
-    # Keep track of cumulative peak magnitudes and times
-    g_peak_mag_cumulative = float('inf')
-    r_peak_mag_cumulative = float('inf')
+    # Keep track of cumulative peak magnitudes, times, and amplitudes
+    g_peak_mag_cumulative = None
+    r_peak_mag_cumulative = None
     g_peak_time_cumulative = None
     r_peak_time_cumulative = None
+    g_amplitude_cumulative = 0.0
+    r_amplitude_cumulative = 0.0
+    g_faint_mag_cumulative = None
+    r_faint_mag_cumulative = None
 
     for i in range(min_obs_count, len(lightcurve) + 1):
         lightcurve_subset = lightcurve.iloc[:i]
@@ -444,24 +464,67 @@ def extract_lc_and_host_features(
                 return_uncertainty=True
             )
 
-            # Update cumulative peak magnitudes and times
+            # Update cumulative peak magnitudes and amplitudes
             if engineered_lc_properties_df is not None:
                 current_g_peak = engineered_lc_properties_df['g_peak_mag'].iloc[0]
                 current_r_peak = engineered_lc_properties_df['r_peak_mag'].iloc[0]
 
-                if current_g_peak < g_peak_mag_cumulative:
-                    g_peak_mag_cumulative = current_g_peak
-                    g_peak_time_cumulative = engineered_lc_properties_df['g_peak_time'].iloc[0]
+                # Update cumulative peak magnitudes (brighter = lower mag number)
+                if not pd.isna(current_g_peak):
+                    if g_peak_mag_cumulative is None or current_g_peak < g_peak_mag_cumulative:
+                        g_peak_mag_cumulative = current_g_peak
+                        g_peak_time_cumulative = engineered_lc_properties_df['g_peak_time'].iloc[0]
 
-                if current_r_peak < r_peak_mag_cumulative:
-                    r_peak_mag_cumulative = current_r_peak
-                    r_peak_time_cumulative = engineered_lc_properties_df['r_peak_time'].iloc[0]
+                if not pd.isna(current_r_peak):
+                    if r_peak_mag_cumulative is None or current_r_peak < r_peak_mag_cumulative:
+                        r_peak_mag_cumulative = current_r_peak
+                        r_peak_time_cumulative = engineered_lc_properties_df['r_peak_time'].iloc[0]
 
-                # Update the dataframe with cumulative values
-                engineered_lc_properties_df['g_peak_mag'] = g_peak_mag_cumulative
-                engineered_lc_properties_df['r_peak_mag'] = r_peak_mag_cumulative
-                engineered_lc_properties_df['g_peak_time'] = g_peak_time_cumulative
-                engineered_lc_properties_df['r_peak_time'] = r_peak_time_cumulative
+                # Update cumulative faint magnitudes (fainter = higher mag number)
+                if len(df_g) > 0:
+                    current_g_faint = df_g["ant_mag"].max()
+                    if g_faint_mag_cumulative is None or current_g_faint > g_faint_mag_cumulative:
+                        g_faint_mag_cumulative = current_g_faint
+
+                if len(df_r) > 0:
+                    current_r_faint = df_r["ant_mag"].max()
+                    if r_faint_mag_cumulative is None or current_r_faint > r_faint_mag_cumulative:
+                        r_faint_mag_cumulative = current_r_faint
+
+                # Calculate cumulative amplitudes
+                if g_peak_mag_cumulative is not None and g_faint_mag_cumulative is not None:
+                    g_amplitude_cumulative = g_faint_mag_cumulative - g_peak_mag_cumulative
+
+                if r_peak_mag_cumulative is not None and r_faint_mag_cumulative is not None:
+                    r_amplitude_cumulative = r_faint_mag_cumulative - r_peak_mag_cumulative
+
+                # Override with cumulative values
+                if g_peak_mag_cumulative is not None:
+                    engineered_lc_properties_df.loc[0, 'g_peak_mag'] = g_peak_mag_cumulative
+                    engineered_lc_properties_df.loc[0, 'g_peak_time'] = g_peak_time_cumulative
+                    engineered_lc_properties_df.loc[0, 'g_amplitude'] = g_amplitude_cumulative
+
+                if r_peak_mag_cumulative is not None:
+                    engineered_lc_properties_df.loc[0, 'r_peak_mag'] = r_peak_mag_cumulative
+                    engineered_lc_properties_df.loc[0, 'r_peak_time'] = r_peak_time_cumulative
+                    engineered_lc_properties_df.loc[0, 'r_amplitude'] = r_amplitude_cumulative
+                
+                # CRITICAL FIX: Override duration calculations with cumulative timespan
+                total_timespan = time_mjd - lightcurve_subset["ant_mjd"].min()
+                
+                # For long-lived transients, duration should reflect the total observed timespan
+                # where we have significant flux, not just the half-flux calculation from current subset
+                if total_timespan > 0:
+                    # Use total timespan as a proxy for duration above half flux for long transients
+                    # This prevents the duration from decreasing as more data comes in
+                    current_g_duration = engineered_lc_properties_df.loc[0, 'g_duration_above_half_flux']
+                    current_r_duration = engineered_lc_properties_df.loc[0, 'r_duration_above_half_flux']
+                    
+                    # Only update if the new calculated duration is longer OR if current is NaN
+                    if pd.isna(current_g_duration) or total_timespan > current_g_duration:
+                        engineered_lc_properties_df.loc[0, 'g_duration_above_half_flux'] = total_timespan
+                    if pd.isna(current_r_duration) or total_timespan > current_r_duration:
+                        engineered_lc_properties_df.loc[0, 'r_duration_above_half_flux'] = total_timespan
 
         except:
             continue
@@ -544,7 +607,9 @@ def extract_lc_and_host_features(
             )
 
             if len(hosts) >= 1:
-                hosts_df = pd.DataFrame(hosts.loc[0]).T
+                # CRITICAL FIX: Take only the FIRST (best) host candidate
+                best_host = hosts.iloc[0:1]  # Select first row as DataFrame
+                hosts_df = pd.DataFrame(best_host).reset_index(drop=True)
             else:
                 print(f"Cannot identify host galaxy for {ztf_id}. Abort!\n")
                 return
@@ -552,7 +617,7 @@ def extract_lc_and_host_features(
             # Check if required host features are missing
             try:
                 raw_host_feature_check = constants.raw_host_features_const.copy()
-                hosts_df = hosts[raw_host_feature_check]
+                hosts_df = hosts_df[raw_host_feature_check]  # Use hosts_df, not hosts
             except KeyError:
                 print(
                     f"KeyError: The following columns are not in the identified host feature set. Try engineering: {[col for col in raw_host_feature_check if col not in hosts_df.columns]}.\nAbort!"
@@ -704,6 +769,9 @@ def local_curvature(times, mags):
 m = sfdmap.SFDMap()
 
 
+
+
+
 class SupernovaFeatureExtractor:
     @staticmethod
     def describe_features():
@@ -716,6 +784,7 @@ class SupernovaFeatureExtractor:
             :pymeth:`SupernovaFeatureExtractor.extract_features`.
         """
         return {
+            # Core timing and brightness features
             "t0": "Time zero-point for light curve normalization",
             "g_peak_mag": "Minimum magnitude (brightest point) in g band",
             "g_peak_time": "Time of peak brightness in g band",
@@ -727,36 +796,53 @@ class SupernovaFeatureExtractor:
             "r_rise_time": "Time from 50% peak flux to r-band peak",
             "r_decline_time": "Time from r-band peak to 50% flux decay",
             "r_duration_above_half_flux": "Duration above 50% of r-band peak flux",
+            
+            # Amplitude and variability features
             "g_amplitude": "Magnitude difference between min and max in g band",
-            "g_skewness": "Skew of g-band magnitude distribution",
-            "g_beyond_2sigma": "Fraction of g-band points beyond 2 standard deviations",
             "r_amplitude": "Magnitude difference between min and max in r band",
-            "r_skewness": "Skew of r-band magnitude distribution",
-            "r_beyond_2sigma": "Fraction of r-band points beyond 2 standard deviations",
-            "g_max_rolling_variance": "Max variance in a 5-point window in g band",
-            "g_mean_rolling_variance": "Mean variance in a 5-point window in g band",
-            "r_max_rolling_variance": "Max variance in a 5-point window in r band",
-            "r_mean_rolling_variance": "Mean variance in a 5-point window in r band",
+            "g_skewness": "Skewness of magnitude distribution in g band",
+            "r_skewness": "Skewness of magnitude distribution in r band",
+            "g_beyond_2sigma": "Fraction of g-band points beyond 2σ from mean",
+            "r_beyond_2sigma": "Fraction of r-band points beyond 2σ from mean",
+            
+            # Color features
             "mean_g-r": "Average g-r color over shared time range",
             "g-r_at_g_peak": "g-r color at g-band peak time",
             "mean_color_rate": "Average rate of change of g-r color",
+            
+            # Peak structure features
             "g_n_peaks": "Number of peaks in g band (prominence > 0.1)",
-            "g_dt_main_to_secondary_peak": "Time difference between top two g-band peaks",
-            "g_dmag_secondary_peak": "Magnitude difference between g-band peaks",
-            "g_secondary_peak_prominence": "Prominence of second-brightest g-band peak",
-            "g_secondary_peak_width": "Width of second-brightest g-band peak",
             "r_n_peaks": "Number of peaks in r band (prominence > 0.1)",
-            "r_dt_main_to_secondary_peak": "Time difference between top two r-band peaks",
-            "r_dmag_secondary_peak": "Magnitude difference between r-band peaks",
-            "r_secondary_peak_prominence": "Prominence of second-brightest r-band peak",
-            "r_secondary_peak_width": "Width of second-brightest r-band peak",
-            "g_rise_local_curvature": "Median second derivative of rising g-band light curve (20d window)",
-            "g_decline_local_curvature": "Median second derivative of declining g-band light curve (20d window)",
-            "r_rise_local_curvature": "Median second derivative of rising r-band light curve (20d window)",
-            "r_decline_local_curvature": "Median second derivative of declining r-band light curve (20d window)",
+            "g_dt_main_to_secondary_peak": "Time between main and secondary peaks in g band",
+            "r_dt_main_to_secondary_peak": "Time between main and secondary peaks in r band",
+            "g_dmag_secondary_peak": "Magnitude difference between main and secondary peaks in g band",
+            "r_dmag_secondary_peak": "Magnitude difference between main and secondary peaks in r band",
+            "g_secondary_peak_prominence": "Prominence of secondary peak in g band",
+            "r_secondary_peak_prominence": "Prominence of secondary peak in r band",
+            "g_secondary_peak_width": "Width of secondary peak in g band",
+            "r_secondary_peak_width": "Width of secondary peak in r band",
+            
+            # Rolling variance features
+            "g_max_rolling_variance": "Maximum rolling variance in g band",
+            "r_max_rolling_variance": "Maximum rolling variance in r band",
+            "g_mean_rolling_variance": "Mean rolling variance in g band",
+            "r_mean_rolling_variance": "Mean rolling variance in r band",
+            
+            # Local curvature features
+            "g_rise_local_curvature": "Local curvature during g-band rise",
+            "g_decline_local_curvature": "Local curvature during g-band decline",
+            "r_rise_local_curvature": "Local curvature during r-band rise",
+            "r_decline_local_curvature": "Local curvature during r-band decline",
+            
+            # Essential extreme transient detection feature
+            "total_duration": "Total observational duration (end-to-end timespan in days)",
+            
+            # Validation features
             "features_valid": "Whether all key features were successfully computed",
             "ztf_object_id": "ZTF object identifier",
         }
+
+
 
     def __init__(
         self, time_g, mag_g, err_g, time_r, mag_r, err_r, ztf_object_id=None, ra=None, dec=None
@@ -851,22 +937,33 @@ class SupernovaFeatureExtractor:
             for key in band:
                 band[key] = band[key][idx]
 
-            time_reshaped = band["time"].reshape(-1, 1)
-            from sklearn.cluster import DBSCAN
+            # Only apply DBSCAN filtering if we have many points and large time gaps
+            if len(band["time"]) > 50:
+                time_reshaped = band["time"].reshape(-1, 1)
+                from sklearn.cluster import DBSCAN
+                
+                # Adaptive eps based on median time spacing
+                time_diffs = np.diff(np.sort(band["time"]))
+                median_spacing = np.median(time_diffs)
+                # Use 3x median spacing as eps to be more permissive for long transients
+                eps = max(5, 3 * median_spacing)
 
-            clustering = DBSCAN(eps=5, min_samples=min_cluster_size).fit(time_reshaped)
-            labels = clustering.labels_
+                clustering = DBSCAN(eps=eps, min_samples=min_cluster_size).fit(time_reshaped)
+                labels = clustering.labels_
 
-            # Keep all points that are part of clusters with ≥ min_cluster_size
-            good_clusters = [
-                label
-                for label in set(labels)
-                if label != -1 and np.sum(labels == label) >= min_cluster_size
-            ]
-            mask = np.isin(labels, good_clusters)
-
-            for key in band:
-                band[key] = band[key][mask]
+                # Keep all points that are part of clusters with ≥ min_cluster_size
+                good_clusters = [
+                    label
+                    for label in set(labels)
+                    if label != -1 and np.sum(labels == label) >= min_cluster_size
+                ]
+                
+                # If no good clusters found, keep all points (don't filter)
+                if len(good_clusters) > 0:
+                    mask = np.isin(labels, good_clusters)
+                    for key in band:
+                        band[key] = band[key][mask]
+            # For smaller datasets, skip DBSCAN filtering entirely
 
         # Recalculate t0 based on filtered times
         if len(self.g["time"]) == 0 or len(self.r["time"]) == 0:
@@ -1009,20 +1106,97 @@ class SupernovaFeatureExtractor:
             _, idx = np.unique(t, return_index=True)
             return t[idx], m[idx]
 
-        t_min = max(self.g["time"].min(), self.r["time"].min())
-        t_max = min(self.g["time"].max(), self.r["time"].max())
+        g_time, g_mag = dedup(self.g["time"], self.g["mag"])
+        r_time, r_mag = dedup(self.r["time"], self.r["mag"])
+
+        t_min = max(g_time.min(), r_time.min())
+        t_max = min(g_time.max(), r_time.max())
 
         if t_max <= t_min or np.isnan(t_min) or np.isnan(t_max):
             return None
-        t_grid = np.linspace(t_min, t_max, 100)
-        g_time, g_mag = dedup(self.g["time"], self.g["mag"])
-        r_time, r_mag = dedup(self.r["time"], self.r["mag"])
-        g_interp = interp1d(g_time, g_mag, kind="linear", fill_value="extrapolate")
-        r_interp = interp1d(r_time, r_mag, kind="linear", fill_value="extrapolate")
-        color = g_interp(t_grid) - r_interp(t_grid)
+        
+        # MUCH SIMPLER APPROACH: Use actual observation times for color calculation
+        # Find times where we have measurements in both bands (within reasonable tolerance)
+        color_measurements = []
+        color_times = []
+        
+        # For each g observation, find the closest r observation (within 1 day)
+        for gt, gm in zip(g_time, g_mag):
+            if gt < t_min or gt > t_max:
+                continue
+            
+            # Find closest r-band observation
+            time_diffs = np.abs(r_time - gt)
+            closest_idx = np.argmin(time_diffs)
+            
+            if time_diffs[closest_idx] <= 1.0:  # Within 1 day
+                color_measurements.append(gm - r_mag[closest_idx])
+                color_times.append(gt)
+        
+        # Also try the reverse: for each r observation, find closest g
+        for rt, rm in zip(r_time, r_mag):
+            if rt < t_min or rt > t_max:
+                continue
+            
+            time_diffs = np.abs(g_time - rt)
+            closest_idx = np.argmin(time_diffs)
+            
+            if time_diffs[closest_idx] <= 1.0:  # Within 1 day
+                # Avoid duplicates by checking if we already have a measurement close to this time
+                if not any(abs(ct - rt) < 0.1 for ct in color_times):
+                    color_measurements.append(g_mag[closest_idx] - rm)
+                    color_times.append(rt)
+        
+        if len(color_measurements) < 3:
+            # Fall back to simple interpolation if not enough direct measurements
+            t_grid = np.linspace(t_min, t_max, max(10, int(t_max - t_min)))
+            g_interp = interp1d(g_time, g_mag, kind="linear", bounds_error=False, fill_value=np.nan)
+            r_interp = interp1d(r_time, r_mag, kind="linear", bounds_error=False, fill_value=np.nan)
+            color = g_interp(t_grid) - r_interp(t_grid)
+            valid_mask = ~np.isnan(color)
+            
+            if valid_mask.sum() < 3:
+                mean_color = np.nan
+                mean_rate = 0.0
+            else:
+                mean_color = np.mean(color[valid_mask])
+                # Use a very simple linear fit for rate
+                valid_times = t_grid[valid_mask]
+                valid_colors = color[valid_mask]
+                if len(valid_colors) >= 2:
+                    # Simple linear regression
+                    coeffs = np.polyfit(valid_times, valid_colors, 1)
+                    mean_rate = coeffs[0]  # Slope
+                    # Sanity check
+                    if abs(mean_rate) > 0.1:  # > 0.1 mag/day is very fast
+                        mean_rate = 0.0
+                else:
+                    mean_rate = 0.0
+        else:
+            # Use direct measurements
+            color_measurements = np.array(color_measurements)
+            color_times = np.array(color_times)
+            
+            # Sort by time
+            sort_idx = np.argsort(color_times)
+            color_times = color_times[sort_idx]
+            color_measurements = color_measurements[sort_idx]
+            
+            mean_color = np.mean(color_measurements)
+            
+            # Calculate rate using simple linear fit to actual measurements
+            if len(color_measurements) >= 2:
+                # Simple linear regression
+                coeffs = np.polyfit(color_times, color_measurements, 1)
+                mean_rate = coeffs[0]  # Slope
+                
+                # Sanity check: typical SNe Ia color evolution is ~0.01-0.05 mag/day
+                if abs(mean_rate) > 0.1:
+                    mean_rate = 0.0
+            else:
+                mean_rate = 0.0
 
-        dcolor_dt = np.gradient(color, t_grid)
-        mean_rate = np.mean(dcolor_dt)
+        # Calculate g-r at g-band peak
         tpg = self.g["time"][np.argmin(self.g["mag"])]
         try:
             gr_at_gpeak = self.g["mag"][np.argmin(self.g["mag"])] - np.interp(
@@ -1030,7 +1204,8 @@ class SupernovaFeatureExtractor:
             )
         except Exception:
             gr_at_gpeak = np.nan
-        return np.mean(color), gr_at_gpeak, mean_rate
+        
+        return mean_color, gr_at_gpeak, mean_rate
 
     def _rolling_variance(self, band, window_size=5):
         """Max & mean variance in sliding windows over an interpolated LC.
@@ -1072,7 +1247,19 @@ class SupernovaFeatureExtractor:
         mag_interp = interp1d(
             band["time"], band["mag"], kind="linear", fill_value="extrapolate"
         )(t_uniform)
+        
+        # Try strict parameters first
         peaks, properties = find_peaks(-mag_interp, prominence=0.1, width=5)
+        
+        # If no peaks found, try more relaxed parameters to ensure we find the main peak
+        if len(peaks) == 0:
+            peaks, properties = find_peaks(-mag_interp, prominence=0.05, width=2)
+        
+        # If still no peaks, find the global minimum as the peak
+        if len(peaks) == 0:
+            main_peak_idx = np.argmin(mag_interp)
+            return 1, np.nan, np.nan, np.nan, np.nan
+        
         n_peaks = len(peaks)
         if n_peaks < 2:
             return n_peaks, np.nan, np.nan, np.nan, np.nan
@@ -1126,6 +1313,32 @@ class SupernovaFeatureExtractor:
         decline_curv = local_curvature(decline_t, decline_m)
         return rise_curv, decline_curv
 
+    def _total_duration_feature(self, band_g, band_r):
+        """Calculate total observational duration - essential for extreme transient detection.
+        
+        Returns
+        -------
+        float
+            Total end-to-end duration in days
+        """
+        # Get combined time arrays
+        all_times_g = band_g["time"][np.isfinite(band_g["time"]) & np.isfinite(band_g["mag"])]
+        all_times_r = band_r["time"][np.isfinite(band_r["time"]) & np.isfinite(band_r["mag"])]
+        
+        if len(all_times_g) > 0 and len(all_times_r) > 0:
+            all_times = np.concatenate([all_times_g, all_times_r])
+        elif len(all_times_g) > 0:
+            all_times = all_times_g
+        elif len(all_times_r) > 0:
+            all_times = all_times_r
+        else:
+            return np.nan
+        
+        if len(all_times) > 1:
+            return np.max(all_times) - np.min(all_times)
+        else:
+            return 0.0
+
     def extract_features(self, return_uncertainty=False, n_trials=20):
         """Generate the full reLAISS feature vector for the supplied LC.
 
@@ -1163,6 +1376,10 @@ class SupernovaFeatureExtractor:
         r_peak_struct = self._peak_structure(self.r)
         g_rollvar = self._rolling_variance(self.g)
         r_rollvar = self._rolling_variance(self.r)
+        
+        # Calculate total duration for extreme transient detection
+        total_duration = self._total_duration_feature(self.g, self.r)
+        
         base_row = {
             "t0": self.time_offset,
             "g_peak_mag": g_core[0],
@@ -1202,7 +1419,10 @@ class SupernovaFeatureExtractor:
             "g_decline_local_curvature": g_decline_curv,
             "r_rise_local_curvature": r_rise_curv,
             "r_decline_local_curvature": r_decline_curv,
+            # Essential extreme transient detection feature
+            "total_duration": total_duration,
         }
+        
         base_row["features_valid"] = all(
             not np.isnan(base_row[k])
             for k in [

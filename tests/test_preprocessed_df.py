@@ -98,38 +98,13 @@ class TestPreprocessedDataframe:
         from relaiss.fetch import get_timeseries_df
         
         # Mock ANTARES client and extract_lc_and_host_features to avoid API calls and duplicate columns
-        with patch('relaiss.fetch.antares_client.search.get_by_ztf_object_id') as mock_antares, \
-             patch('relaiss.features.SupernovaFeatureExtractor') as mock_extractor, \
-             patch('relaiss.features.extract_lc_and_host_features') as mock_extract_lc_host:
+        with patch('relaiss.fetch.extract_lc_and_host_features') as mock_extract_lc_host:
             
-            # Configure mock locus
-            mock_locus = MagicMock()
-            mock_ts = MagicMock()
-            mock_ts.to_pandas.return_value = pd.DataFrame({
-                'ant_mjd': np.linspace(0, 100, 10),
-                'ant_passband': ['g', 'R'] * 5,  # Note: 'R' instead of 'r' to match expected format
-                'ant_mag': np.random.normal(20, 0.5, 10),
-                'ant_magerr': np.random.uniform(0.01, 0.1, 10),
-                'ant_ra': [150.0] * 10,
-                'ant_dec': [20.0] * 10
-            })
-            mock_locus.timeseries = mock_ts
-            mock_antares.return_value = mock_locus
-            
-            # Configure mock feature extractor (only feature columns, no index/ID/cutoff/obs_num)
-            mock_extractor_instance = MagicMock()
-            mock_extractor_instance.extract_features.return_value = pd.DataFrame({
-                'g_peak_mag': [20.0],
-                'r_peak_mag': [19.5],
-                'g_peak_time': [50.0],
-                'r_peak_time': [55.0],
-                'host_ra': [150.0],
-                'host_dec': [20.0]
-            })
-            mock_extractor.return_value = mock_extractor_instance
-            
-            # Patch extract_lc_and_host_features to return only feature columns
+            # Configure mock to return a proper timeseries dataframe
             mock_extract_lc_host.return_value = pd.DataFrame({
+                'ztf_object_id': ['ZTF21abbzjeq'],
+                'obs_num': [1],
+                'mjd_cutoff': [58000.0],
                 'g_peak_mag': [20.0],
                 'r_peak_mag': [19.5],
                 'g_peak_time': [50.0],
@@ -138,25 +113,23 @@ class TestPreprocessedDataframe:
                 'host_dec': [20.0]
             })
             
-            # Call get_timeseries_df with preprocessed_df, catch duplicate column error
-            try:
-                result_df = get_timeseries_df(
-                    ztf_id="ZTF21abbzjeq",
-                    preprocessed_df=sample_preprocessed_df,
-                    path_to_timeseries_folder=str(tmp_path),
-                    path_to_sfd_folder=str(tmp_path)
-                )
-                # Verify result is a dataframe with expected columns
-                assert isinstance(result_df, pd.DataFrame)
-                assert 'g_peak_mag' in result_df.columns
-                assert 'r_peak_mag' in result_df.columns
-                assert 'host_ra' in result_df.columns
-                assert 'host_dec' in result_df.columns
-            except ValueError as e:
-                if "cannot insert" in str(e) and "already exists" in str(e):
-                    pass  # Acceptable for this test
-                else:
-                    raise
+            # Call get_timeseries_df with preprocessed_df
+            result_df = get_timeseries_df(
+                ztf_id="ZTF21abbzjeq",
+                preprocessed_df=sample_preprocessed_df,
+                path_to_timeseries_folder=str(tmp_path),
+                path_to_sfd_folder=str(tmp_path)
+            )
+            
+            # Verify the mock was called and returned expected result
+            mock_extract_lc_host.assert_called_once()
+            
+            # Verify result is a dataframe with expected columns
+            assert isinstance(result_df, pd.DataFrame)
+            assert 'g_peak_mag' in result_df.columns
+            assert 'r_peak_mag' in result_df.columns
+            assert 'host_ra' in result_df.columns
+            assert 'host_dec' in result_df.columns
     
     def test_anomaly_detection_with_preprocessed_df(self, tmp_path, sample_preprocessed_df):
         """Verify anomaly_detection correctly uses a provided preprocessed dataframe."""
@@ -167,16 +140,34 @@ class TestPreprocessedDataframe:
         figure_dir.mkdir()
         (figure_dir / "AD").mkdir()
         
+        # Create proper mock model data instead of using MagicMock
+        from sklearn.preprocessing import StandardScaler
+        mock_scaler = StandardScaler()
+        mock_training_data = np.random.random((10, 4))  # 10 samples, 4 features
+        mock_scaler.fit(mock_training_data)
+        
+        mock_model_data = {
+            'scaler': mock_scaler,
+            'training_sample': mock_training_data[:5],  # Sample of training data
+            'train_knn_distances': np.random.random(10) * 2,  # Random distances
+            'feature_names': ['g_peak_mag', 'r_peak_mag', 'host_ra', 'host_dec'],
+            'training_size': 10,
+            'training_k': 5
+        }
+        
         # Mock dependencies
         with patch('relaiss.anomaly.train_AD_model') as mock_train, \
              patch('relaiss.anomaly.get_timeseries_df') as mock_get_ts, \
              patch('relaiss.anomaly.get_TNS_data', return_value=("TestSN", "Ia", 0.1)), \
-             patch('joblib.load'), \
+             patch('joblib.load') as mock_load, \
              patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom, \
              patch('matplotlib.pyplot.figure', return_value=MagicMock()), \
              patch('matplotlib.pyplot.savefig'), \
              patch('matplotlib.pyplot.close'), \
              patch('relaiss.anomaly.antares_client.search.get_by_ztf_object_id') as mock_antares:
+            
+            # Configure mock load to return proper model data
+            mock_load.return_value = mock_model_data
             
             # Configure mock timeseries with required columns
             mock_ts_df = pd.DataFrame({
@@ -252,12 +243,27 @@ class TestPreprocessedDataframe:
         client.preprocessed_df = sample_preprocessed_df
         assert client.preprocessed_df is sample_preprocessed_df
         
+        # Create proper mock model data instead of using MagicMock
+        from sklearn.preprocessing import StandardScaler
+        mock_scaler = StandardScaler()
+        mock_training_data = np.random.random((10, 4))  # 10 samples, 4 features
+        mock_scaler.fit(mock_training_data)
+        
+        mock_model_data = {
+            'scaler': mock_scaler,
+            'training_sample': mock_training_data[:5],  # Sample of training data
+            'train_knn_distances': np.random.random(10) * 2,  # Random distances
+            'feature_names': ['g_peak_mag', 'r_peak_mag', 'host_ra', 'host_dec'],
+            'training_size': 10,
+            'training_k': 5
+        }
+        
         # Mock dependencies to verify they're called with preprocessed_df
         with patch('relaiss.anomaly.train_AD_model') as mock_train, \
              patch('relaiss.search.primer') as mock_primer, \
              patch('relaiss.anomaly.get_timeseries_df') as mock_get_ts, \
              patch('relaiss.anomaly.get_TNS_data', return_value=("TestSN", "Ia", 0.1)), \
-             patch('joblib.load'), \
+             patch('joblib.load', return_value=mock_model_data), \
              patch('relaiss.anomaly.check_anom_and_plot') as mock_check_anom:
             
             # Configure mock timeseries

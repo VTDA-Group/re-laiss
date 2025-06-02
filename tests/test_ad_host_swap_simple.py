@@ -4,7 +4,7 @@ import numpy as np
 import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from pyod.models.iforest import IForest
+from sklearn.preprocessing import StandardScaler
 import relaiss as rl
 
 def test_ad_host_swap_simple(tmp_path):
@@ -18,17 +18,24 @@ def test_ad_host_swap_simple(tmp_path):
     figure_dir.mkdir(exist_ok=True)
     (figure_dir / "AD").mkdir(exist_ok=True)
     
-    # Create IForest model
-    forest = IForest(n_estimators=10, random_state=42)
+    # Create model data with scaler and training features
+    scaler = StandardScaler()
     X = np.random.rand(20, 4)
-    forest.fit(X)
+    scaler.fit(X)
     
-    model_path = model_dir / "AD_model.pkl"
+    model_path = model_dir / "kNN_scaler_lc=2_host=2.pkl"
+    
+    # Create model data
+    model_data = {
+        'scaler': scaler,
+        'training_features': X,
+        'feature_names': ['g_peak_mag', 'r_peak_mag', 'host_ra', 'host_dec']
+    }
     
     # Create model file
     with open(model_path, 'wb') as f:
         import pickle
-        pickle.dump(forest, f)
+        pickle.dump(model_data, f)
     
     # Define features to use
     lc_features = ['g_peak_mag', 'r_peak_mag']
