@@ -85,24 +85,26 @@ def main():
         force_retrain=False  # Only retrain if model doesn't exist
     )
     print(f"Anomaly detection model saved to: {model_path}")
-    
-    # Now, run anomaly detection on a specific transient
-    print("\nRunning anomaly detection...")
-    anomaly_detection(
-        transient_ztf_id="ZTF21abbzjeq",  # Same test transient
+
+
+    # Run anomaly detection on a transient
+    (mjd_scores, anom_scores, norm_scores) = anomaly_detection(
+        client=client,
+        transient_ztf_id="ZTF21abbzjeq",
         lc_features=client.lc_features,
-        host_features=client.host_features,
-        path_to_timeseries_folder="./timeseries",
-        path_to_sfd_folder='./sfddata-master',
+        host_features=[],
+        path_to_timeseries_folder="./laiss_final/timeseries",
+        path_to_sfd_folder='./data/sfddata-master',
         path_to_dataset_bank=client.bank_csv,
-        path_to_models_directory="./models",
-        path_to_figure_directory="./figures",
+        path_to_models_directory="./laiss_final/models",
+        path_to_figure_directory="./laiss_final/figures/direct_example",
         save_figures=True,
-        n_estimators=100,
-        contamination=0.02,
-        max_samples=256,
-        force_retrain=False
+        return_scores=True,
+        anom_thresh=50,
+        force_retrain=True,
+        preprocessed_df=None
     )
+
     print("Anomaly detection figures saved to ./figures/AD/")
 
 if __name__ == "__main__":
