@@ -27,11 +27,9 @@ def _get_bank_features(df_bank, ztf_id, features):
     try:
         row = df_bank.loc[ztf_id]
     except KeyError:
-        # ID not in bank
-        return np.array([]), {'ra': np.nan, 'dec': np.nan}
+        return np.array([]), {'lc_galaxy_ra': np.nan, 'lc_galaxy_dec': np.nan}
     arr = row.reindex(features).fillna(np.nan).values
     coords = {}
-    # coords from bank if available
     if {'raMean', 'decMean'}.issubset(df_bank.columns):
         coords = {'lc_galaxy_ra': row.get('raMean', np.nan), 'lc_galaxy_dec': row.get('decMean', np.nan)}
     elif {'host_ra', 'host_dec'}.issubset(row.index):
@@ -60,12 +58,10 @@ def _extract_timeseries(ztf_id, lc_df, features, dataset_bank_path,
     )
     if ts is None or not hasattr(ts, 'dropna'):
         return np.array([]), {'lc_galaxy_ra': np.nan, 'lc_galaxy_dec': np.nan}
-    # drop any rows missing requested features
     df_clean = ts.dropna(subset=features) if features else ts.copy()
     if df_clean.empty:
         return np.array([]), {'lc_galaxy_ra': np.nan, 'lc_galaxy_dec': np.nan}
     arr = df_clean[features].iloc[-1].values if features else np.array([])
-    # extract coords
     if {'raMean', 'decMean'}.issubset(df_clean.columns):
         coords = {'lc_galaxy_ra': df_clean['raMean'].iloc[0], 'lc_galaxy_dec': df_clean['decMean'].iloc[0]}
     elif {'host_ra', 'host_dec'}.issubset(df_clean.columns):
@@ -94,7 +90,6 @@ def primer(
     Assemble combined feature array; drops NaNs by default.
     Always returns a dict with feature array (possibly reduced) without aborting.
     """
-    # validate inputs
     if (lc_ztf_id is None) == (theorized_lightcurve_df is None):
         raise ValueError("Provide exactly one of lc_ztf_id or theorized_lightcurve_df.")
     if theorized_lightcurve_df is not None and host_ztf_id is None:
@@ -102,15 +97,13 @@ def primer(
     lc_features = lc_features or []
     host_features = host_features or []
     feature_names = lc_features + host_features
-
-    # load dataset once
     df_bank = _load_dataset_bank(dataset_bank_path, preprocessed_df)
 
     def get_entity(ztf_id, features):
         arr, coords = _get_bank_features(df_bank, ztf_id, features)
-        if arr.size == 0:
-            # fallback to timeseries
-            arr, ts_coords = _extract_timeseries(
+        # only fallback if features requested but bank returned empty
+        if features and arr.size == 0:
+            arr_ts, coords_ts = _extract_timeseries(
                 ztf_id,
                 None if features is host_features or theorized_lightcurve_df is not None else theorized_lightcurve_df,
                 features,
@@ -121,14 +114,12 @@ def primer(
                 swapped_host=(features is host_features),
                 preprocessed_df=preprocessed_df,
             )
-            coords.update(ts_coords)
-        # TNS data
+            arr = arr_ts
+            coords.update(coords_ts)
         name, cls, z = get_TNS_data(ztf_id) if ztf_id else ("No TNS", "---", -99)
         return arr, coords, (name, cls, z), ztf_id
 
-    # lightcurve
     lc_arr, lc_coords, lc_tns, lc_id = get_entity(lc_ztf_id, lc_features)
-    # host
     if host_ztf_id:
         host_arr, host_coords, host_tns, host_id = get_entity(host_ztf_id, host_features)
     else:
@@ -137,16 +128,12 @@ def primer(
         host_tns = (None, None, None)
         host_id = None
 
-    # combine
     combined = np.concatenate([lc_arr, host_arr]) if host_arr.size else lc_arr
-
-    # drop NaNs
     if drop_nan_features and combined.size:
         mask = ~pd.isna(combined)
         combined = combined[mask]
         feature_names = [f for f, m in zip(feature_names, mask) if m]
 
-    # build output
     output = {
         'lc_ztf_id': lc_id,
         'lc_tns_name': lc_tns[0], 'lc_tns_cls': lc_tns[1], 'lc_tns_z': lc_tns[2],
@@ -161,10 +148,9 @@ def primer(
         'lc_feat_names': lc_features,
         'host_feat_names': host_features,
     }
-    # Monte Carlo
     np.random.seed(random_seed)
     for _ in range(num_sims):
-        s = pd.Series(combined, index=feature_names)
+        s = pd.Series(combined, index=feature_names).copy()
         for feat, err in constants.err_lookup.items():
             if feat in s.index and err in s.index:
                 s[feat] += np.random.normal(0, s[err])
