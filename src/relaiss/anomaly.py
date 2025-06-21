@@ -730,7 +730,7 @@ def check_anom_and_plot(
     mjd_margin = (max_mjd - min_mjd) * 0.05
     mjd_range = (min_mjd - mjd_margin, max_mjd + mjd_margin)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(10, 13))
+    fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, figsize=(20, 4))
     ax1.invert_yaxis()
     ax1.errorbar(
         x=df_ref_r.ant_mjd,
@@ -818,7 +818,8 @@ def check_anom_and_plot(
         + f" [{pmax_text}(Anomaly)= {max_anom_score:.1f}%]",
         pad=25,
     )
-    plt.xlabel("MJD")
+    ax1.set_xlabel("MJD")
+    ax2.set_xlabel("MJD")
     ax1.set_ylabel("Apparent Magnitude")
     ax2.set_ylabel("Anomaly Score (%)")
 

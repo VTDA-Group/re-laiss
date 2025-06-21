@@ -404,6 +404,12 @@ class ReLAISS:
             preprocessed_df=self.hydrated_bank,
         )
 
+        vect = primer_dict['locus_feat_arr']
+
+        if vect is None or getattr(vect, 'size', 0) == 0:
+            print(f"No valid features for {primer_dict['lc_ztf_id']}; skipping neighbors.")
+            return pd.DataFrame([])
+
         start_time = time.time()
         index_file = str(annoy_index_file_stem) + ".ann"
 
