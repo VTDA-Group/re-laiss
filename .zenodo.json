@@ -1,0 +1,20 @@
+{
+  "creators": [
+    {
+      "name": "Reynolds, Evan",
+      "affiliation": "Center for Astrophysics | Harvard & Smithsonian"
+    },
+    {
+      "name": "Gagliano, Alex",
+      "orcid": "0000-0003-4906-8447" 
+      "affiliation": "Center for Astrophysics | Harvard & Smithsonian"
+    },
+    {
+      "name": "Villar, Victoria Ashley",
+      "orcid": "0000-0002-5814-4061", 
+      "affiliation": "Center for Astrophysics | Harvard & Smithsonian"
+    }
+  ],
+  "description": "A flexible library for similarity searches of supernovae and their host galaxies.",
+  "license": "MIT"
+}
