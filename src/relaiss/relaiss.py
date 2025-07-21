@@ -12,7 +12,10 @@ from .fetch import get_TNS_data
 from .plotting import plot_lightcurves, plot_hosts
 import os
 from kneed import KneeLocator
-import ngtpy as ngt
+try:
+    import ngtpy as ngt
+except:
+    import ngt 
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
@@ -315,12 +318,9 @@ class ReLAISS:
 
         dim = pca.n_components_ if pca else len(lc_features + host_features)
 
-        test_path = './'
-        ngt.create(test_path, dim, distance_type="L2") 
-
-        #self._index = ngt.Index(dim)  ngt.ngtIndex(dim, metric="manhattan")
-        #self._index.load(str(self.index_stem) + ".ngt")
-        self._index = ngt.Index(f"{self.index_stem}.ngt".encode())
+        index_dir = f"{self.index_stem}.ngt" 
+        ngt.create(index_dir.encode(), dim, distance_type="L2")
+        self._index = ngt.Index(index_dir.encode())
 
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
         self.feat_arr_scaled = feat_arr_scaled
