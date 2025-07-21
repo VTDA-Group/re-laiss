@@ -28,11 +28,6 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install pytest
         if [ -f pyproject.toml ]; then pip install -e .; fi
-    - name: Install python bindings for ngt
-      run: | 
-        git clone https://github.com/yahoojapan/NGT.git
-        cd NGT/python
-        pip3 install .
     - name: Test with pytest
       run: |
         python -m pytest tests/test_utils.py -v --ci

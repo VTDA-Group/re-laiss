@@ -39,11 +39,6 @@ jobs:
     - name: List dependencies
       run: |
         pip list
-    - name: Install python bindings for ngt
-      run: |
-        git clone https://github.com/yahoojapan/NGT.git
-        cd NGT/python
-        pip3 install .
     - name: Run unit tests with pytest /  pytest-copie
       run: |
         python -m pytest
