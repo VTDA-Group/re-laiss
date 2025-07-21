@@ -319,7 +319,8 @@ class ReLAISS:
         dim = pca.n_components_ if pca else len(lc_features + host_features)
 
         index_dir = f"{self.index_stem}.ngt" 
-        ngt.create(index_dir.encode(), dim, distance_type="L2")
+        if not os.path.exists(index_dir):
+            ngt.create(index_dir.encode(), dim, distance_type="L2")
         self._index = ngt.Index(index_dir.encode())
 
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
