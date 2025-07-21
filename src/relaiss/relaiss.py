@@ -12,7 +12,7 @@ from .fetch import get_TNS_data
 from .plotting import plot_lightcurves, plot_hosts
 import os
 from kneed import KneeLocator
-import annoy
+import ngtpy as ngt
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
@@ -84,7 +84,7 @@ class ReLAISS:
     bank_csv : Path
         Path to the reference dataset bank CSV file.
     index_stem : Path
-        Stem path for the ANNOY index files.
+        Stem path for the NGT index files.
     scaler : StandardScaler
         Scaler used for feature normalization.
     pca : Optional[PCA]
@@ -93,12 +93,14 @@ class ReLAISS:
         List of lightcurve feature names.
     host_features : list[str]
         List of host galaxy feature names.
+    include_anomaly_features : bool
+        If true, include features for anomaly detection.
     feat_arr_scaled : np.ndarray
         Scaled feature array used for indexing.
     path_to_sfd_folder : Path
         Path to SFD dust map files.
-    _index : annoy.AnnoyIndex
-        ANNOY index for fast similarity search.
+    _index : ngt.ngtIndex
+        NGT index for fast similarity search.
     _ids : np.ndarray
         Array of ZTF IDs corresponding to the index.
     use_pca : bool
@@ -119,9 +121,10 @@ class ReLAISS:
         self.pca: Optional[PCA]
         self.lc_features: list[str]
         self.host_features: list[str]
+        self.include_anomaly_features: bool
         self.feat_arr_scaled: np.ndarray
         self.path_to_sfd_folder: Path
-        self._index: annoy.AnnoyIndex
+        self._index: ngt.Index 
         self._ids: np.ndarray
         self.use_pca: bool
         self.built_for_AD: bool
@@ -152,15 +155,16 @@ class ReLAISS:
         path_to_sfd_folder: Path | str = './' ,
         lc_features: Optional[Sequence[str]] = None,
         host_features: Optional[Sequence[str]] = None,
+        include_anomaly_features: Optional[bool] = False,
         weight_lc: float = 1.0,
         use_pca: bool = False,
         num_pca_components: Optional[int] = None,
         force_recreation_of_index: bool = False,
         building_for_AD: bool = False,
         random_seed: int = 42,
-        num_trees: int = 1000,
+        #num_trees: int = 1000,
     ) -> None:
-        """Load the shipped 20‑k reference bank and build (or load) its ANNOY index.
+        """Load the 20k reference bank and build (or load) its NGT index.
 
         Parameters
         ----------
@@ -185,6 +189,8 @@ class ReLAISS:
         download_sfd_files(path_to_sfd_folder)
 
         lc_features = list(lc_features) if lc_features is not None else _c.lc_features_const.copy()
+        if include_anomaly_features:
+            lc_features += _c.anomaly_lc_features_const
         host_features = list(host_features) if host_features is not None else _c.raw_host_features_const.copy()
 
         if not bank_path.exists():
@@ -245,22 +251,23 @@ class ReLAISS:
         index_params = {
             **cache_params_bank,
             'hydrated_hash': compute_dataframe_hash(hydrated_bank),
-            'num_trees'    : num_trees,          # fixed in your code
+            #'num_trees'    : num_trees,          
         }
+
         index_cache_key = get_cache_key('reference_index', **index_params)
         index_stem = index_dir / index_cache_key
 
         # Check if index files exist
-        index_files_exist = all(
+        index_dirs_exist = all(
             path.exists()
             for path in (
-                index_stem.with_suffix('.ann'),
+                index_stem.with_suffix('.ngt'),
                 index_stem.parent / (index_stem.name + '_idx_arr.npy'),
                 index_stem.parent / (index_stem.name + '_scaler.joblib'),
             )
         )
 
-        if not index_files_exist:
+        if not index_dirs_exist:
             print("Building search index...")
             index_stem, scaler, feat_arr_scaled = build_indexed_sample(
                 data_bank=hydrated_bank,
@@ -268,7 +275,7 @@ class ReLAISS:
                 host_features=host_features,
                 use_pca=use_pca,
                 num_pca_components=num_pca_components,
-                num_trees=num_trees,
+                #num_trees=num_trees,
                 path_to_index_directory=str(index_dir),
                 weight_lc_feats_factor=weight_lc,
                 force_recreation_of_index=force_recreation_of_index,
@@ -307,9 +314,16 @@ class ReLAISS:
         self.random_seed = random_seed
 
         dim = pca.n_components_ if pca else len(lc_features + host_features)
-        self._index = annoy.AnnoyIndex(dim, metric="manhattan")
-        self._index.load(str(self.index_stem) + ".ann")
+
+        test_path = './'
+        ngt.create(test_path, dim, distance_type="L2") 
+
+        #self._index = ngt.Index(dim)  ngt.ngtIndex(dim, metric="manhattan")
+        #self._index.load(str(self.index_stem) + ".ngt")
+        self._index = ngt.Index(f"{self.index_stem}.ngt".encode())
+
         self._ids = np.load(str(self.index_stem) + "_idx_arr.npy", allow_pickle=True)
+        self.feat_arr_scaled = feat_arr_scaled
 
     def find_neighbors(
         self,
@@ -326,7 +340,7 @@ class ReLAISS:
         save_figures=False,
         path_to_figure_directory="../figures",
     ):
-        """Query the ANNOY index and plot nearest-neighbor diagnostics.
+        """Query the NGT index and plot nearest-neighbor diagnostics.
 
         This method finds the most similar transients to the input transient in the
         reference dataset bank. It can use either a real transient (specified by
@@ -354,7 +368,7 @@ class ReLAISS:
         max_neighbor_dist : float | None, default None
             Optional maximum L1 distance for neighbors.
         search_k : int, default 5000
-            ANNOY search_k parameter for controlling search accuracy.
+            NGT search_k parameter for controlling search accuracy.
         weight_lc_feats_factor : float, default 1.0
             Factor to up-weight lightcurve features relative to host features.
         num_sims : int, default 0
@@ -387,7 +401,7 @@ class ReLAISS:
         """
         start_time = time.time()
 
-        annoy_index_file_stem = self.index_stem
+        ngt_index_dir_stem = self.index_stem
         dataset_bank = Path(path_to_dataset_bank or self.bank_csv)
 
         primer_dict = primer(
@@ -411,7 +425,7 @@ class ReLAISS:
             return pd.DataFrame([])
 
         start_time = time.time()
-        index_file = str(annoy_index_file_stem) + ".ann"
+        index_dir = str(ngt_index_dir_stem) + ".ngt"
 
         if n is None or n <= 0:
             raise ValueError("Neighbor number must be a nonzero integer. Abort!")
@@ -420,7 +434,7 @@ class ReLAISS:
             f"{primer_dict['lc_ztf_id'] if primer_dict['lc_ztf_id'] is not None else 'theorized_lc'}"
             + (
                 f"_host_from_{primer_dict['host_ztf_id']}"
-                if primer_dict["host_ztf_id"] is not None
+                if primer_dict["host_ztf_id"] != primer_dict["lc_ztf_id"]
                 else ""
             )
         )
@@ -428,15 +442,15 @@ class ReLAISS:
         # Find neighbors for every Monte Carlo feature array
         if self.use_pca:
             print(
-                f"Loading previously saved ANNOY PCA={self.pca.n_components_} index:",
-                index_file,
+                f"Loading previously saved NGT PCA={self.pca.n_components_} index:",
+                index_dir,
                 "\n",
             )
 
             bank_feat_arr_scaled = np.load(str(self.index_stem) + "_feat_arr_scaled_pca.npy", allow_pickle=True)
 
         else:
-            print("Loading previously saved ANNOY index without PCA:", index_file, "\n")
+            print("Loading previously saved ngt index without PCA:", index_dir, "\n")
 
             # Scale the feature array
             bank_feat_arr = np.load(
@@ -467,9 +481,13 @@ class ReLAISS:
                         print(f"Upweighting light curve features by a factor of {self.weight_lc:.1f}.")
                     scaled *= self.weight_lc
 
-            idxs, dists = self._index.get_nns_by_vector(
-                scaled_vector, n=n+100, search_k=search_k, include_distances=True
-            )
+            #idxs, dists = self._index.get_nns_by_vector(
+            #    scaled_vector, n=n+1, search_k=search_k, include_distances=True
+            #)
+            res = self._index.search(scaled_vector, n+1)
+            idxs, dists = zip(*res)
+            idxs   = np.asarray(idxs,   dtype=np.int64) # - 1  # NGT idxs are 1-based...
+            dists = np.asarray(dists, dtype=np.float32)
 
             # Store neighbors and distances in dictionary
             for idx, dist in zip(idxs, dists):
@@ -640,7 +658,7 @@ class ReLAISS:
             )
 
         # optional swapped host line
-        if primer_dict["host_ztf_id"] is not None:
+        if (primer_dict["host_ztf_id"] is not None) and (primer_dict["host_ztf_id"] != primer_dict["lc_ztf_id"]):
             print(
                 hdr_fmt.format(
                     "HOST:",
@@ -780,3 +798,118 @@ class ReLAISS:
             })
 
         return pd.DataFrame(storage)
+
+    def debug_bruteforce_vs_ngt(self, ztf_object_id, feature=None, top_n=5, verbose=True):
+        """
+        Expanded debug: checks ngt index health, data alignment, and prints all relevant info for nearest neighbor search.
+        """
+        import numpy as np
+        from .search import primer
+
+        # Select feature
+        if feature is None:
+            if self.lc_features:
+                feature = self.lc_features[0]
+            elif self.host_features:
+                feature = self.host_features[0]
+            else:
+                raise ValueError("No features available in ReLAISS instance.")
+        print(f"\n[DEBUG] Using feature: {feature}")
+
+        # Get normalized reference array and IDs
+        X_ref = self.feat_arr_scaled
+        ids = self._ids
+        feature_idx = (self.lc_features + self.host_features).index(feature)
+
+        # ngt index health checks
+        print(f"[DEBUG] ngt index dimension: {self._index.get_object(1)}")
+        print(f"[DEBUG] Expected dimension: 1")
+        print(f"[DEBUG] ngt index size: {self._index.get_num_of_objects()}")
+        print(f"[DEBUG] Reference bank size: {X_ref.shape[0]}")
+        if len(self._index.get_object(1)) != 1:
+            print("[WARNING] ngt index dimension does not match expected (should be 1 for single feature).")
+        if self._index.get_num_of_objects() != X_ref.shape[0]:
+            print("[WARNING] ngt index size does not match reference bank size!")
+
+        # Check if query object is in the reference bank
+        try:
+            idx = np.where(ids == ztf_object_id)[0][0]
+            in_ref = True
+        except IndexError:
+            print(f"[WARNING] Query object {ztf_object_id} not in reference bank!")
+            idx = None
+            in_ref = False
+
+        # Print actual feature value for query object in reference bank
+        if in_ref:
+            ref_val = X_ref[idx, feature_idx]
+            print(f"[DEBUG] Reference normalized value for query object: {ref_val}")
+        else:
+            ref_val = None
+
+        # Construct the query vector
+        primer_dict = primer(
+            lc_ztf_id=ztf_object_id,
+            lc_features=[feature] if feature in self.lc_features else [],
+            host_features=[feature] if feature in self.host_features else [],
+            dataset_bank_path=self.bank_csv,
+            preprocessed_df=self.hydrated_bank,
+            drop_nan_features=False,
+        )
+        raw_query = primer_dict['locus_feat_arr']
+        if np.isnan(raw_query[0]):
+            raw_query[0] = self.scaler.mean_[feature_idx]
+        query_norm = self.scaler.transform([raw_query])[0][0]
+        print(f"[DEBUG] Query vector shape: {raw_query.shape}, normalized value: {query_norm}")
+
+        # Brute-force distances
+        dists = np.abs(X_ref[:, feature_idx] - query_norm)
+        sorted_idx = np.argsort(dists)
+        print("\n[DEBUG] Brute-force top neighbors:")
+        for i in range(min(top_n, len(sorted_idx))):
+            print(f"  {i+1}: {ids[sorted_idx[i]]} (dist={dists[sorted_idx[i]]:.4f})")
+        if ztf_object_id in ids[sorted_idx[:top_n]]:
+            print(f"[DEBUG] Query object {ztf_object_id} found in brute-force top {top_n}.")
+        else:
+            print(f"[DEBUG] Query object {ztf_object_id} NOT found in brute-force top {top_n}.")
+
+        # ngt index check
+        res = self._index.search(query_norm, top_n+1)
+        ngt_idx, ngt_dist = zip(*res)
+
+        ngt_idx  = np.asarray(ngt_idx,   dtype=np.int64) # - 1  # NGT idxs are 1-based...
+        ngt_dist = np.asarray(ngt_dist, dtype=np.float32)
+
+        print("ngt_idx:", ngt_idx)
+        print("ngt_dist:", ngt_dist)
+
+        num_ngt = len(ngt_idx)
+
+        print("\n[DEBUG] ngt top neighbors:")
+        for i in range(min(top_n, num_ngt)):
+            print(f"  {i+1}: {ids[ngt_idx[i]]} (dist={ngt_dist[i]:.4f})")
+        if num_ngt < top_n:
+            print(f"[DEBUG] ngt only returned {num_ngt} neighbors (requested {top_n}).")
+        if ztf_object_id in ids[ngt_idx]:
+            print(f"[DEBUG] Query object {ztf_object_id} found in ngt results at position {np.where(ids[ngt_idx]==ztf_object_id)[0][0]+1}")
+        else:
+            print(f"[DEBUG] Query object {ztf_object_id} NOT found in ngt results.")
+
+        # Return all debug info
+        return {
+            'feature': feature,
+            'query_id': ztf_object_id,
+            'query_norm': query_norm,
+            'ref_val': ref_val,
+            'brute_force_ids': ids[sorted_idx[:top_n]],
+            'brute_force_dists': dists[sorted_idx[:top_n]],
+            'ngt_ids': ids[ngt_idx],
+            'ngt_dist': ngt_dist,
+            'ngt_index_dim': len(self._index.get_object(1)), 
+            'expected_dim': 1,
+            'ngt_index_size': self._index.get_num_of_objects(),
+            'reference_bank_size': X_ref.shape[0],
+            'query_vector_shape': raw_query.shape,
+            'in_reference_bank': in_ref,
+            'num_ngt_neighbors': num_ngt,
+        }

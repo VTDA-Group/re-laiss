@@ -82,7 +82,7 @@ def primer(
     num_sims=0,
     preprocessed_df=None,
     random_seed=42,
-    drop_nan_features=True,
+    drop_nan_features=False,
 ):
     """
     Assemble combined feature array; drops NaNs by default.
@@ -132,6 +132,7 @@ def primer(
 
     combined = np.concatenate([lc_arr, host_arr]) if host_arr.size else lc_arr
     if drop_nan_features and combined.size:
+        print("Dropping nan features")
         mask = ~pd.isna(combined)
         combined = combined[mask]
         feature_names = [f for f, m in zip(feature_names, mask) if m]
@@ -150,7 +151,9 @@ def primer(
         'lc_feat_names': lc_features,
         'host_feat_names': host_features,
     }
+
     np.random.seed(random_seed)
+
     for _ in range(num_sims):
         s = pd.Series(combined, index=feature_names).copy()
         for feat, err in constants.err_lookup.items():

@@ -1,8 +1,6 @@
-# Light-curve features for reLAISS - comprehensive set including extreme transient detection
+# Light-curve features for reLAISS - comprehensive set 
 lc_features_const = [
     # Core supernova timing and brightness features
-    "g_peak_mag",
-    "r_peak_mag", 
     "g_peak_time",
     "r_peak_time",
     "g_rise_time",
@@ -25,18 +23,6 @@ lc_features_const = [
     "g-r_at_g_peak",
     "mean_color_rate",
     
-    # Peak structure features
-    "g_n_peaks",
-    "r_n_peaks",
-    "g_dt_main_to_secondary_peak",
-    "r_dt_main_to_secondary_peak",
-    "g_dmag_secondary_peak",
-    "r_dmag_secondary_peak",
-    "g_secondary_peak_prominence", 
-    "r_secondary_peak_prominence",
-    "g_secondary_peak_width",
-    "r_secondary_peak_width",
-    
     # Rolling variance features
     "g_max_rolling_variance",
     "r_max_rolling_variance",
@@ -48,10 +34,18 @@ lc_features_const = [
     "g_decline_local_curvature",
     "r_rise_local_curvature",
     "r_decline_local_curvature",
-    # "total_duration", # useful but requires re-calculating on the full feature bank
 ]
 
-# Host feature list for LAISS. You can comment out features you want to exclude.
+anom_lc_features_const = [
+    "g_peak_mag",
+    "r_peak_mag",
+    "g_n_peaks", "r_n_peaks",
+    "g_dt_main_to_secondary_peak", "r_dt_main_to_secondary_peak",
+    "g_dmag_secondary_peak", "r_dmag_secondary_peak",
+    "g_secondary_peak_prominence", "r_secondary_peak_prominence",
+    "g_secondary_peak_width", "r_secondary_peak_width"]
+
+# Host feature list for LAISS.
 host_features_const = [
     "gKronMagCorrected",
     "gKronRad",
@@ -106,7 +100,6 @@ host_feature_err = [
     "iminuszKronMagErr",
 ]
 
-
 err_lookup = {
     # Lightcurve feature error names
     "g_peak_mag": "g_peak_mag_err",
@@ -128,7 +121,6 @@ err_lookup = {
     "g_decline_local_curvature": "g_decline_local_curvature_err",
     "r_rise_local_curvature": "r_rise_local_curvature_err",
     "r_decline_local_curvature": "r_decline_local_curvature_err",
-    # Host feature error names
     "gKronMagCorrected": "gKronMagErr",
     "rKronMagCorrected": "rKronMagErr",
     "iKronMagCorrected": "iKronMagErr",

@@ -765,12 +765,7 @@ def local_curvature(times, mags):
         curvatures.append(a)
     return np.median(curvatures) if curvatures else np.nan
 
-
 m = sfdmap.SFDMap()
-
-
-
-
 
 class SupernovaFeatureExtractor:
     @staticmethod

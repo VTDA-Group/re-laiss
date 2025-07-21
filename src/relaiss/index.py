@@ -1,8 +1,7 @@
 import os
 import logging
 import joblib
-
-import annoy
+import ngtpy as ngt
 import numpy as np
 import pandas as pd
 from sklearn import preprocessing
@@ -14,16 +13,16 @@ def build_indexed_sample(
     host_features=[],
     use_pca=False,
     num_pca_components=None,
-    num_trees=1000,
+    #num_trees=1000,
     path_to_index_directory="",
     save=True,
     force_recreation_of_index=True,
     weight_lc_feats_factor=1.0,
     random_seed=42
 ):
-    """Create (or load) an ANNOY index over a reference feature bank.
+    """Create (or load) an NGT index over a reference feature bank.
 
-    This function builds or loads an ANNOY index for fast similarity search over a dataset
+    This function builds or loads an NGT index for fast similarity search over a dataset
     of astronomical transients. It can optionally apply PCA for dimensionality reduction
     and weight lightcurve features more heavily than host features.
 
@@ -40,8 +39,8 @@ def build_indexed_sample(
     num_pca_components : int | None, default None
         Number of PCA components to use. If None and use_pca=True,
         keeps 99% of variance.
-    num_trees : int, default 1000
-        Number of random projection trees for ANNOY index.
+    #num_trees : int, default 1000
+    #    Number of random projection trees for NGT index.
     path_to_index_directory : str | Path, default ""
         Directory to save index and support files.
     save : bool, default True
@@ -70,7 +69,7 @@ def build_indexed_sample(
     Notes
     -----
     The function saves several files:
-    - {index_stem_name_with_path}.ann: ANNOY index file
+    - {index_stem_name_with_path}.ngt: NGT index file
     - {index_stem_name_with_path}_idx_arr.npy: Array of ZTF IDs
     - {index_stem_name_with_path}_feat_arr.npy: Original feature array
     - {index_stem_name_with_path}_scaler.joblib: Fitted scaler
@@ -108,7 +107,6 @@ def build_indexed_sample(
     data_bank = data_bank[lc_features + host_features]
 
     # Scale dataset bank features
-
     feat_arr = np.array(data_bank)
     idx_arr = np.array(data_bank.index) # Use index from cleaned data
 
@@ -118,9 +116,8 @@ def build_indexed_sample(
 
     if not use_pca:
         # Upweight lightcurve features
-        feat_arr_scaled[:, :num_lc_features] *= weight_lc_feats_factor
-        # Save the weighted feature array
         weighted_feat_arr = feat_arr_scaled.copy()
+        weighted_feat_arr[:, :num_lc_features] *= weight_lc_feats_factor
     else:
         pcaModel = PCA(n_components=num_pca_components, random_state=random_seed)
         feat_arr_scaled_pca = pcaModel.fit_transform(feat_arr_scaled)
@@ -128,7 +125,7 @@ def build_indexed_sample(
     # Save PCA and non-PCA index arrays to binary files
     os.makedirs(path_to_index_directory, exist_ok=True)
     index_stem_name = (
-        f"re_laiss_annoy_index_pca{use_pca}"
+        f"re_laiss_ngt_index_pca{use_pca}"
         + (f"_{num_pca_components}comps" if use_pca else "")
         + f"_{num_lc_features}lc_{num_host_features}host"
         + f"_{int(weight_lc_feats_factor)}weight"
@@ -154,39 +151,36 @@ def build_indexed_sample(
                 f"{index_stem_name_with_path}_feat_arr_scaled.npy",
                 feat_arr_scaled,
             )
+
             # Save the scaled and weighted feature array used to build the index
             np.save(
                 f"{index_stem_name_with_path}_feat_arr_scaled_weighted.npy",
-                feat_arr_scaled,
+                weighted_feat_arr,
             )
 
-    # Create or load the ANNOY index:
-    index_file = f"{index_stem_name_with_path}.ann"
+    # Create or load the NGT index:
+    index_dir = f"{index_stem_name_with_path}.ngt"
     index_dim = feat_arr_scaled_pca.shape[1] if use_pca else feat_arr_scaled.shape[1]
-
-    # If the ANNOY index already exists, use it
-    if os.path.exists(index_file) and not force_recreation_of_index:
-        print("Loading previously saved ANNOY index...")
-        index = annoy.AnnoyIndex(index_dim, metric="manhattan")
-        index.load(index_file)
+    
+    if os.path.exists(index_dir) and not force_recreation_of_index:
+        print("Loading previously saved NGT index...")
+        index = ngt.Index(index_dir.encode())
         idx_arr = np.load(
             f"{index_stem_name_with_path}_idx_arr.npy",
             allow_pickle=True,
         )
-
-    # Otherwise, create a new index
     else:
-        print(f"Building new ANNOY index with {data_bank.shape[0]} transients...")
+        print(f"Building new NGT index with {data_bank.shape[0]} transients...")
 
-        index = annoy.AnnoyIndex(index_dim, metric="manhattan")
+        ngt.create(index_dir.encode(), index_dim, distance_type="L2")
+        index = ngt.Index(index_dir.encode())
 
-        for i in range(len(idx_arr)):
-            index.add_item(i, feat_arr_scaled_pca[i] if use_pca else weighted_feat_arr[i])
-
-        index.build(num_trees)
-
+        if use_pca:
+            index.batch_insert(feat_arr_scaled_pca)
+        else:
+            index.batch_insert(weighted_feat_arr)
         if save:
-            index.save(index_file)
+            index.save()
 
     print("Done!\n")
 

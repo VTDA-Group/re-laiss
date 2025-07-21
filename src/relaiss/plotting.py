@@ -144,7 +144,7 @@ def plot_lightcurves(
                 fmt=markers[num],
                 c=c1,
                 alpha=alpha,
-                label=f"ANN={num+1}:{ztfname}, d={round(dist, 2)},\n{iau_name}, {spec_cls}, z={z}",
+                label=f"ANN={num+1}:{ztfname}, d={dist:.1f},\n{iau_name}, {spec_cls}, z={z}",
             )
             ax.errorbar(
                 x=df_g.ant_mjd - df_g.ant_mjd.iloc[mjd_idx_at_min_mag_g],
@@ -347,19 +347,15 @@ def plot_hosts(
 
 
 def corner_plot(
-    neighbors_df,  # from reLAISS nearest neighbors
-    primer_dict,  # from reLAISS nearest neighbors
+    neighbors_df,  
+    primer_dict,  
     path_to_dataset_bank,
     remove_outliers_bool=True,
     path_to_figure_directory="../figures",
     save_plots=True,
-    preprocessed_df=None,  # Added parameter for preprocessed dataframe
+    preprocessed_df=None,  
 ):
     """Create corner plots comparing feature distributions between neighbors and the full dataset.
-
-    This function creates corner plots that visualize the distribution of features
-    for the nearest neighbors compared to the full dataset. The input transient's
-    features are marked in green, neighbors in red, and the full dataset in blue.
 
     Parameters
     ----------
