@@ -3,7 +3,6 @@ import pandas as pd
 from . import constants
 from .fetch import get_timeseries_df, get_TNS_data
 
-
 def _load_dataset_bank(path, preprocessed_df=None):
     """
     Load and normalize the dataset bank, returning a DataFrame indexed by ztf_object_id.
@@ -70,7 +69,6 @@ def _extract_timeseries(ztf_id, lc_df, features, dataset_bank_path,
         coords = {'lc_galaxy_ra': np.nan, 'lc_galaxy_dec': np.nan}
     return arr, coords
 
-
 def primer(
     lc_ztf_id=None,
     theorized_lightcurve_df=None,
@@ -88,18 +86,10 @@ def primer(
 ):
     """
     Assemble combined feature array; drops NaNs by default.
-    Always returns a dict with feature array (possibly reduced) without aborting.
     """
-    if (lc_ztf_id is None) == (theorized_lightcurve_df is None):
-        raise ValueError("Provide exactly one of lc_ztf_id or theorized_lightcurve_df.")
-    if theorized_lightcurve_df is not None and host_ztf_id is None:
-        raise ValueError("Providing theorized_lightcurve_df requires host_ztf_id.")
-    lc_features = lc_features or []
-    host_features = host_features or []
-    feature_names = lc_features + host_features
-    df_bank = _load_dataset_bank(dataset_bank_path, preprocessed_df)
 
-    def get_entity(ztf_id, features):
+    # Local helper
+    def _get_entity(ztf_id, features):
         arr, coords = _get_bank_features(df_bank, ztf_id, features)
         # only fallback if features requested but bank returned empty
         if features and arr.size == 0:
@@ -119,9 +109,21 @@ def primer(
         name, cls, z = get_TNS_data(ztf_id) if ztf_id else ("No TNS", "---", -99)
         return arr, coords, (name, cls, z), ztf_id
 
-    lc_arr, lc_coords, lc_tns, lc_id = get_entity(lc_ztf_id, lc_features)
+    if (lc_ztf_id is None) == (theorized_lightcurve_df is None):
+        raise ValueError("Provide exactly one of lc_ztf_id or theorized_lightcurve_df.")
+    if theorized_lightcurve_df is not None and host_ztf_id is None:
+        raise ValueError("Providing theorized_lightcurve_df requires host_ztf_id.")
+    lc_features = lc_features or []
+    host_features = host_features or []
+    feature_names = lc_features + host_features
+    df_bank = _load_dataset_bank(dataset_bank_path, preprocessed_df)
+
+    lc_arr, lc_coords, lc_tns, lc_id = _get_entity(lc_ztf_id, lc_features)
     if host_ztf_id:
-        host_arr, host_coords, host_tns, host_id = get_entity(host_ztf_id, host_features)
+        host_arr, host_coords, host_tns, host_id = _get_entity(host_ztf_id, host_features)
+    elif len(host_features) > 0:
+        print("There are host features, snagging from the light curve ID!")
+        host_arr, host_coords, host_tns, host_id = _get_entity(lc_ztf_id, host_features)
     else:
         host_arr = np.array([])
         host_coords = {'lc_galaxy_ra': np.nan, 'lc_galaxy_dec': np.nan}
@@ -157,4 +159,3 @@ def primer(
         output['locus_feat_arrs_mc_l'].append(s.values)
 
     return output
-
