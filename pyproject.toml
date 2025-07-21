@@ -19,6 +19,7 @@ classifiers = [
 dynamic = ["version"]
 requires-python = ">=3.8"
 dependencies = [
+  "ngt",
   "numpy", 
   "matplotlib", 
   "pandas", 
@@ -28,7 +29,6 @@ dependencies = [
   "sfdmap2; python_version >= '3.9'",
   "matplotlib>=3.5",
   "astropy>=5.0",
-  "annoy>=1.17",
   "kneed",
   "seaborn",
   "statsmodels",
