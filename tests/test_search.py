@@ -52,9 +52,9 @@ def test_find_neighbors_invalid_input():
     with pytest.raises(ValueError):
         client.find_neighbors(ztf_object_id="ZTF21abbzjeq", n=-1)
 
-def test_annoy_search(test_annoy_index, dataset_bank_path):
-    """Test that the Annoy index works as expected for neighbor search."""
-    index, index_path, object_ids = test_annoy_index
+def test_ngt_search(test_ngt_index, dataset_bank_path):
+    """Test that the NGT index works as expected for neighbor search."""
+    index, index_path, object_ids = test_ngt_index
     
     # Use a predefined set of features to ensure dimensions match
     lc_features = ['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time']
@@ -64,12 +64,10 @@ def test_annoy_search(test_annoy_index, dataset_bank_path):
     # Create a random test vector with the correct dimension
     test_vector = np.random.rand(vector_dim)
     
-    # Increase the search_k parameter for better accuracy
-    search_k = 1000
-    
     # Get nearest neighbors
     n_items = min(5, len(object_ids))
-    nearest_indices = index.get_nns_by_vector(test_vector, n_items, search_k=search_k)
+    res = index.search(test_vector.astype(np.float32), n_items)
+    nearest_indices, distances = zip(*res)
     
     # Verify results
     assert len(nearest_indices) >= 1  # Accept at least 1 neighbor

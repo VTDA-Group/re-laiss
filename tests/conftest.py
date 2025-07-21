@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 import tempfile
 import shutil
 import astropy.units as u
-from .fixtures.search import build_test_annoy_index
+from .fixtures.search import build_test_ngt_index
 
 # Get the path to the test fixtures
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -192,15 +192,15 @@ def mock_extinction_all():
         yield mock_map, mock_g23
 
 @pytest.fixture
-def test_annoy_index(dataset_bank_path):
-    """Create a test Annoy index for testing."""
+def test_ngt_index(dataset_bank_path):
+    """Create a test NGT index for testing."""
     # Get the dataset bank file
     df = pd.read_csv(dataset_bank_path)
     
-    # Build a temporary Annoy index
+    # Build a temporary NGT index
     with tempfile.TemporaryDirectory() as tmpdir:
-        index_path = Path(tmpdir) / "annoy_index"
-        index, index_path, object_ids = build_test_annoy_index(
+        index_path = Path(tmpdir) / "ngt_index"
+        index, index_path, object_ids = build_test_ngt_index(
             test_databank_path=dataset_bank_path,
             lc_features=['g_peak_mag', 'r_peak_mag', 'g_peak_time', 'r_peak_time'],
             host_features=['host_ra', 'host_dec']

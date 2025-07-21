@@ -6,7 +6,7 @@ This script demonstrates advanced features of reLAISS including:
 - Swapping host galaxies
 - Using PCA for dimensionality reduction
 - Setting maximum neighbor distances
-- Tweaking ANNOY parameters
+- Tweaking NGT parameters
 - Making corner plots
 - Advanced anomaly detection with parameter tuning
 - Host swapping in anomaly detection
@@ -106,8 +106,8 @@ def main():
     print("\nNearest neighbors within distance threshold:")
     print(neighbors_df)
     
-    # Example 5: Tweaking ANNOY parameters
-    print("\nExample 5: Tweaking ANNOY parameters")
+    # Example 5: Tweaking NGT parameters
+    print("\nExample 5: Tweaking NGT parameters")
     neighbors_df = client.find_neighbors(
         ztf_object_id='ZTF21abbzjeq',
         n=5,
@@ -116,7 +116,7 @@ def main():
         save_figures=True,
         path_to_figure_directory='./figures'
     )
-    print("\nNearest neighbors with tweaked ANNOY parameters:")
+    print("\nNearest neighbors with tweaked NGT parameters:")
     print(neighbors_df)
     
     # Example 6: Making corner plots

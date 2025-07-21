@@ -12,10 +12,7 @@ from .fetch import get_TNS_data
 from .plotting import plot_lightcurves, plot_hosts
 import os
 from kneed import KneeLocator
-try:
-    import ngtpy as ngt
-except:
-    import ngt 
+import ngtpy as ngt
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA

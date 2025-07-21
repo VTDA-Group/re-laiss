@@ -1,13 +1,13 @@
 import numpy as np
 import pandas as pd
-import annoy
+import ngtpy as ngt
 import os
 from pathlib import Path
 import tempfile
 
-# Test fixture for building an Annoy index for testing
-def build_test_annoy_index(test_databank_path, lc_features=None, host_features=None):
-    """Build an Annoy index from the test dataset bank for testing.
+# Test fixture for building an NGT index for testing
+def build_test_ngt_index(test_databank_path, lc_features=None, host_features=None):
+    """Build an NGT index from the test dataset bank for testing.
     
     Parameters
     ----------
@@ -21,7 +21,7 @@ def build_test_annoy_index(test_databank_path, lc_features=None, host_features=N
     Returns
     -------
     tuple
-        (index, index_path, object_ids) - the annoy index, path to temp file, and array of object ids
+        (index, index_path, object_ids) - the ngt index, path to temp file, and array of object ids
     """
     # Default features if none provided
     if lc_features is None:
@@ -42,31 +42,31 @@ def build_test_annoy_index(test_databank_path, lc_features=None, host_features=N
     feat_arr = np.array(df_features)
     feat_arr_scaled = (feat_arr - np.mean(feat_arr, axis=0)) / np.std(feat_arr, axis=0)
     
-    # Create annoy index
+    # Create temp directory for NGT index
+    temp_dir = tempfile.mkdtemp()
+    index_path = os.path.join(temp_dir, "test_index.ngt")
+    
+    # Create NGT index
     index_dim = feat_arr.shape[1]
-    index = annoy.AnnoyIndex(index_dim, "manhattan")
+    ngt.create(index_path.encode(), index_dim, distance_type="L2")
+    index = ngt.Index(index_path.encode())
     
     # Add items to index
     for i, obj_id in enumerate(df_bank.index):
-        index.add_item(i, feat_arr_scaled[i])
+        index.insert(feat_arr_scaled[i].astype(np.float32))
     
-    # Build index with 10 trees (fewer for tests to be faster)
-    index.build(10)
-    
-    # Create temp file to save index
-    temp_dir = tempfile.mkdtemp()
-    index_path = os.path.join(temp_dir, "test_index.ann")
-    index.save(index_path)
+    # Build index
+    index.build_index()
     
     return index, index_path, np.array(df_bank.index)
 
 def find_neighbors(index, idx_arr, query_vector, n=5):
-    """Find neighbors using the test Annoy index.
+    """Find neighbors using the test NGT index.
     
     Parameters
     ----------
-    index : annoy.AnnoyIndex
-        The Annoy index to query
+    index : ngt.Index
+        The NGT index to query
     idx_arr : numpy.ndarray
         Array of object IDs
     query_vector : numpy.ndarray
@@ -80,9 +80,8 @@ def find_neighbors(index, idx_arr, query_vector, n=5):
         (ids, distances) - arrays of neighbor IDs and distances
     """
     # Query the index
-    neighbor_indices, distances = index.get_nns_by_vector(
-        query_vector, n, include_distances=True
-    )
+    res = index.search(query_vector.astype(np.float32), n)
+    neighbor_indices, distances = zip(*res)
     
     # Get ZTF IDs of neighbors
     neighbor_ids = idx_arr[neighbor_indices]
