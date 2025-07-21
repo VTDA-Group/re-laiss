@@ -42,10 +42,23 @@ print(neigh[["iau_name", "dist"]])
 
 # Citation
 
-If reLAISS helps your research, please cite the following two works:
+If you use reLAISS for your research, please cite the following two works:
 
 ```
-Research note bibtex to be added here!
+@article{Reynolds_2025,
+doi = {10.3847/2515-5172/adef56},
+url = {https://dx.doi.org/10.3847/2515-5172/adef56},
+year = {2025},
+month = {jul},
+publisher = {The American Astronomical Society},
+volume = {9},
+number = {7},
+pages = {189},
+author = {Reynolds, E. and Gagliano, A. and Villar, V. A.},
+title = {reLAISS: A Python Package for Flexible Similarity Searches of Supernovae and Their Host Galaxies},
+journal = {Research Notes of the AAS},
+}
+
 
 @ARTICLE{2024ApJ...974..172A,
        author = {{Aleo}, P.~D. and {Engel}, A.~W. and {Narayan}, G. and {Angus}, C.~R. and {Malanchev}, K. and {Auchettl}, K. and {Baldassare}, V.~F. and {Berres}, A. and {de Boer}, T.~J.~L. and {Boyd}, B.~M. and {Chambers}, K.~C. and {Davis}, K.~W. and {Esquivel}, N. and {Farias}, D. and {Foley}, R.~J. and {Gagliano}, A. and {Gall}, C. and {Gao}, H. and {Gomez}, S. and {Grayling}, M. and {Jones}, D.~O. and {Lin}, C. -C. and {Magnier}, E.~A. and {Mandel}, K.~S. and {Matheson}, T. and {Raimundo}, S.~I. and {Shah}, V.~G. and {Soraisam}, M.~D. and {de Soto}, K.~M. and {Vicencio}, S. and {Villar}, V.~A. and {Wainscoat}, R.~J.},
