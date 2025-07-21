@@ -12,7 +12,7 @@ reLAISS lets you retrieve nearest‑neighbour supernovae (or spot outliers) by c
 
 # Install
 
-In a fresh conda environment, run `pip install relaiss`. Then, install the python bindings for ngt from source via the instructions ![here](https://github.com/yahoojapan/NGT/blob/main/python/README.md). 
+In a fresh conda environment, run `pip install relaiss`. Then, install the python bindings for ngt from source via the instructions [here](https://github.com/yahoojapan/NGT/blob/main/python/README.md). 
 
 
 # Code Demo
