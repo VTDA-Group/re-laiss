@@ -95,7 +95,7 @@ def primer(
         if features and arr.size == 0:
             arr_ts, coords_ts = _extract_timeseries(
                 ztf_id,
-                None if features is host_features or theorized_lightcurve_df is not None else theorized_lightcurve_df,
+                None if features is host_features else theorized_lightcurve_df,
                 features,
                 dataset_bank_path,
                 path_to_timeseries_folder,
@@ -111,14 +111,17 @@ def primer(
 
     if (lc_ztf_id is None) == (theorized_lightcurve_df is None):
         raise ValueError("Provide exactly one of lc_ztf_id or theorized_lightcurve_df.")
+
     if theorized_lightcurve_df is not None and host_ztf_id is None:
         raise ValueError("Providing theorized_lightcurve_df requires host_ztf_id.")
+
     lc_features = lc_features or []
     host_features = host_features or []
     feature_names = lc_features + host_features
     df_bank = _load_dataset_bank(dataset_bank_path, preprocessed_df)
-
+ 
     lc_arr, lc_coords, lc_tns, lc_id = _get_entity(lc_ztf_id, lc_features)
+
     if host_ztf_id:
         host_arr, host_coords, host_tns, host_id = _get_entity(host_ztf_id, host_features)
     elif len(host_features) > 0:
@@ -131,6 +134,7 @@ def primer(
         host_id = None
 
     combined = np.concatenate([lc_arr, host_arr]) if host_arr.size else lc_arr
+
     if drop_nan_features and combined.size:
         print("Dropping nan features")
         mask = ~pd.isna(combined)
